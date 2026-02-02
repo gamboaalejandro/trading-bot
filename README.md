@@ -1,93 +1,64 @@
-# QuantMind-Alpha
+# QuantMind-Alpha 🤖💹
 
-**QuantMind-Alpha** is a high-frequency trading (HFT) bot built with **event-driven architecture** for ultra-low latency. It uses ZeroMQ for inter-process communication and supports multiple trading strategies with RL-based meta-learning.
+> **Event-Driven, Low-Latency Cryptocurrency Trading Bot**
 
-## 🏗️ Architecture
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)]()
 
-### Event-Driven Design (Low Latency)
-```
-Binance WebSocket → Feed Handler → ZMQ PUB (5555)
-                                      ↓
-                            [Market Data Stream]
-                                      ↓
-                    ┌─────────────────┼─────────────┐
-                    ▼                 ▼             ▼
-              Metrics Collector  Strategy 1   Strategy N
-                    ↓
-               Redis Cache
-                    ↓
-              Dashboard API ←─── Browser (WebSocket)
-```
+## 🎯 Overview
 
-### Components
-- **apps/ingestion**: WebSocket daemon publishing real-time data via ZeroMQ
-- **apps/dashboard**: FastAPI + WebSocket for live monitoring
-- **apps/brain**: AI strategies (future: RL meta-agent)
-- **apps/executor**: Risk management + order execution
-- **core**: Shared config, security, database utilities
+QuantMind-Alpha is a **high-frequency trading system** for cryptocurrency futures, built with:
+- ⚡ **Sub-10ms internal latency** using ZeroMQ
+- 🏗️ **Event-driven architecture** (no polling!)
+- 📊 **Real-time monitoring** dashboard
+- 🛡️ **Risk management first** (Kelly Criterion, ATR stop loss)
+- 🧠 **Designed for AI** (RL meta-agent for strategy fusion)
+
+### Current Status: v0.1-alpha
+
+**✅ Implemented**:
+- Real-time market data ingestion (Binance Futures)
+- ZeroMQ publish-subscribe messaging
+- Redis-backed metrics collection
+- WebSocket dashboard
+- Risk management framework
+
+**⏳ In Progress**:
+- Trading strategies (Momentum, Mean Reversion)
+- RL meta-agent
+- Live order execution
+
+## 📖 Documentation (200+ Pages)
+
+ | Document | Description |
+|----------|-------------|
+| **[📚 TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md)** | Complete system breakdown (50+ pages) |
+| **[⚠️ RISK_ANALYSIS.md](docs/RISK_ANALYSIS.md)** | All failure points + mitigations (20+ pages) |
+| [apps/ingestion/README.md](apps/ingestion/README.md) | Feed Handler deep-dive (40+ pages) |
+| [apps/dashboard/README.md](apps/dashboard/README.md) | Dashboard & metrics (35+ pages) |
+| [apps/executor/README.md](apps/executor/README.md) | Risk management (30+ pages) |
+| [core/README.md](core/README.md) | Core utilities (25+ pages) |
+| [debugging_guide.md](docs/debugging_guide.md) | Troubleshooting (15+ pages) |
+| [quick_reference.md](docs/quick_reference.md) | Cheat sheet |
 
 ## 🚀 Quick Start
 
-See **[Getting Started Guide](getting_started.md)** for detailed instructions.
-
-**TL;DR**:
 ```bash
-# 1. Setup
+# 1. Copy environment template
 cp .env.example .env
-# Edit .env with your Binance API keys
 
-# 2. Install
-pip install -r requirements.txt
+# 2. Edit with your Binance API keys
+nano .env
 
-# 3. Start
+# 3. Run setup script
+chmod +x start.sh
 ./start.sh
 
-# 4. Open browser
+# 4. Open dashboard
 http://localhost:8000
 ```
 
-## 📊 Features
-
-- ✅ **Ultra-low latency** (<10ms internal messaging with ZeroMQ)
-- ✅ **Real-time monitoring** via WebSocket dashboard
-- ✅ **Event-driven** architecture (no HTTP polling)
-- ✅ **Modular design** (strategies as independent subscribers)
-- ✅ **Risk management** (Kelly Criterion + ATR Stop Loss)
-- ✅ **Production-ready** with process orchestration
-
-## 📦 Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Messaging | ZeroMQ (PUB/SUB) |
-| Async Runtime | uvloop + asyncio |
-| Exchange API | CCXT (WebSocket support) |
-| Dashboard | FastAPI + WebSocket |
-| Cache | Redis |
-| Serialization | MessagePack |
-
-## 🎯 Strategies & Risk Management
-
-### Risk Management (Kelly Core)
-The `apps/executor/risk_manager.py` implements:
-1. **Kelly Criterion**: Dynamic position sizing based on win-rate and risk/reward
-2. **ATR Stop Loss**: Volatility-adjusted stop losses
-
-### Trading Strategies
-- **Momentum**: Trend-following based on price momentum
-- **Mean Reversion**: Bollinger Bands strategy
-- **ML-Based**: LSTM predictions (future)
-- **RL Meta-Agent**: Combines multiple strategies (future)
-
-## 📚 Documentation
-
-- [Architecture Guide](architecture_guide.md) - System design and data flow
-- [Getting Started](getting_started.md) - Setup and deployment
-- [Implementation Plan](implementation_plan.md) - Development roadmap
-
-## 🔒 Security
-- API keys managed via `pydantic-settings`
-- Environment variables in `.env` (gitignored)
 - HMAC signing for signal integrity
 
 ## 🧪 Development

@@ -95,10 +95,10 @@ class FeedHandler:
     
     def _normalize_ticker(self, ticker: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize CCXT ticker to internal format."""
-        return {
-            'symbol': ticker['symbol'],
-            'timestamp': ticker['timestamp'],
-            'datetime': ticker['datetime'],
+        normalized = {
+            'symbol': ticker.get('symbol', 'UNKNOWN'),
+            'timestamp': ticker.get('timestamp'),
+            'datetime': ticker.get('datetime'),
             'bid': ticker.get('bid'),
             'ask': ticker.get('ask'),
             'last': ticker.get('last'),
@@ -107,6 +107,12 @@ class FeedHandler:
             'low': ticker.get('low'),
             'change_percent': ticker.get('percentage')
         }
+        
+        # Log if critical fields are missing
+        if not normalized['last']:
+            logger.warning(f"Missing 'last' price in ticker: {ticker}")
+        
+        return normalized
     
     async def _publish(self, data: Dict[str, Any]):
         """Publish data to ZMQ socket."""

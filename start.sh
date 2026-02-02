@@ -26,12 +26,12 @@ if [ ! -f ".env" ]; then
 fi
 
 # Start Redis if not running
-if ! docker ps | grep -q quantmind_redis; then
+if ! sudo docker ps | grep -q quantmind_redis; then
     echo "Starting Redis..."
-    docker-compose up -d redis
+    sudo docker compose up -d redis
     sleep 2
 fi
 
 # Start the orchestrator
 echo "Starting QuantMind-Alpha..."
-python orchestrator.py
+python3 orchestrator.py

@@ -75,11 +75,12 @@ class MetricsCollector:
     def _calculate_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate derived metrics."""
         spread = None
+        spread_bps = None
+        
+        # Only calculate spread if both bid and ask exist
         if data.get('bid') and data.get('ask'):
             spread = data['ask'] - data['bid']
             spread_bps = (spread / data['ask']) * 10000  # basis points
-        else:
-            spread_bps = None
         
         uptime = (datetime.now() - self.start_time).total_seconds()
         msg_per_sec = self.messages_received / uptime if uptime > 0 else 0
@@ -104,6 +105,10 @@ class MetricsCollector:
     async def _store_metrics(self, redis_conn, data: Dict[str, Any], metrics: Dict[str, Any]):
         """Store latest data and metrics in Redis."""
         symbol = data.get('symbol', 'UNKNOWN')
+        
+        # Normalize Binance Futures symbol format (BTC/USDT:USDT -> BTC/USDT)
+        if ':' in symbol:
+            symbol = symbol.split(':')[0]
         
         # Store latest ticker
         await redis_conn.set(
