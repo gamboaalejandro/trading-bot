@@ -1,0 +1,18 @@
+ai:
+  model_name: "LSTM_v1"
+  timeframe: "1m"
+  lookback_period: 60
+  features:
+    - "close"
+    - "volume"
+    - "rsi"
+  training:
+    epochs: 50
+    batch_size: 32
+    validation_split: 0.2
+
+trading:
+  symbol: "BTC/USDT"
+  strategy: "scalping_v1"
+  max_positions: 1
+  leverage: 10

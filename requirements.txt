@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+redis
+pydantic
+pydantic-settings
+ccxt
+pandas
+numpy
+pyyaml
+websockets
+aiohttp
+pytest
+pytest-asyncio
+pyzmq
+uvloop
+msgpack
+
