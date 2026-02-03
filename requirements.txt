@@ -1,17 +1,14 @@
-fastapi
-uvicorn
-redis
-pydantic
-pydantic-settings
-ccxt
-pandas
-numpy
-pyyaml
-websockets
-aiohttp
-pytest
-pytest-asyncio
-pyzmq
-uvloop
-msgpack
+# Dependencias del Sistema de Trading
 
+ccxt>=4.0.0
+ccxtpro>=1.0.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+redis>=5.0.0
+pyzmq>=25.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+ta>=0.11.0  # Technical Analysis library
+asyncio
+aiohttp>=3.9.0

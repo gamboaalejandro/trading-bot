@@ -9,11 +9,26 @@ class Settings(BaseSettings):
     BINANCE_API_KEY: str = Field(..., description="Binance API Key")
     BINANCE_SECRET: str = Field(..., description="Binance Secret Key")
     
+    # Binance Testnet (optional, defaults to main keys if not provided)
+    BINANCE_TESTNET_API_KEY: str = Field(default="", description="Binance Testnet API Key")
+    BINANCE_TESTNET_SECRET: str = Field(default="", description="Binance Testnet Secret Key")
+    USE_TESTNET: bool = Field(default=True, description="Use testnet instead of production")
+    
     # Environment
     ENV: str = Field("development", description="Environment: development, production")
     
     # Redis
     REDIS_URL: str = Field("redis://localhost:6379", description="Redis Connection URL")
+    
+    # Trading Configuration
+    MAX_DAILY_DRAWDOWN: float = Field(0.05, description="Maximum daily drawdown (5% = 0.05)")
+    MAX_RISK_PER_TRADE: float = Field(0.02, description="Maximum risk per trade (2% = 0.02)")
+    KELLY_FRACTION: float = Field(0.25, description="Kelly criterion fraction (0.25 = quarter Kelly)")
+    DEFAULT_LEVERAGE: int = Field(1, description="Default leverage for futures")
+    
+    # Trading Symbol
+    DEFAULT_SYMBOL: str = Field("BTC/USDT", description="Default trading symbol")
+    DEFAULT_TIMEFRAME: str = Field("1m", description="Default candle timeframe")
 
     # AI Config (Loaded from YAML)
     AI_CONFIG: Dict[str, Any] = Field(default_factory=dict)
