@@ -1,3 +1,16 @@
+"""
+Trading Bot Orchestrator
+
+Manages the lifecycle of all trading bot services:
+- Feed Handler: ZeroMQ data feed from Binance WebSocket
+- Trading Engine: Main trading logic and execution
+
+Usage:
+    python3 orchestrator.py
+
+This will start both services and monitor them.
+Press Ctrl+C to gracefully shutdown all services.
+"""
 import asyncio
 import subprocess
 import signal
@@ -69,37 +82,33 @@ async def main():
     signal.signal(signal.SIGTERM, lambda s, f: signal_handler(s, f, manager))
     
     logger.info("=" * 60)
-    logger.info("QuantMind-Alpha Orchestrator")
+    logger.info("Trading Bot Orchestrator")
     logger.info("=" * 60)
     
-    # Start Feed Handler
+    # Start Feed Handler (ZeroMQ data feed)
     manager.start_process(
         "Feed Handler",
         [PYTHON_CMD, "apps/ingestion/feed_handler_daemon.py"]
     )
-    await asyncio.sleep(2)  # Wait for initialization
+    await asyncio.sleep(2)  # Wait for feed handler initialization
     
-    # Start Metrics Collector
+    # Start Trading Engine
     manager.start_process(
-        "Metrics Collector",
-        [PYTHON_CMD, "apps/dashboard/metrics_collector.py"]
+        "Trading Engine",
+        [PYTHON_CMD, "apps/executor/trading_engine.py"]
     )
     await asyncio.sleep(1)
     
-    # Start Dashboard API
-    uvicorn_cmd = str(Path(__file__).parent / "venv" / "bin" / "uvicorn")
-    manager.start_process(
-        "Dashboard API",
-        [uvicorn_cmd, "apps.dashboard.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    )
-    
     logger.info("=" * 60)
     logger.info("All services started!")
-    logger.info("Dashboard: http://localhost:8000")
+    logger.info("Services running:")
+    logger.info("  - Feed Handler (ZeroMQ)")
+    logger.info("  - Trading Engine")
+    logger.info("")
     logger.info("Press Ctrl+C to stop all services")
     logger.info("=" * 60)
     
-    # Keep running
+    # Keep running and monitor processes
     try:
         while True:
             await asyncio.sleep(1)
@@ -107,6 +116,9 @@ async def main():
             for process in manager.processes:
                 if process.poll() is not None:
                     logger.error(f"Process {process.pid} died unexpectedly!")
+                    logger.error("Shutting down all services...")
+                    manager.stop_all()
+                    sys.exit(1)
     except KeyboardInterrupt:
         manager.stop_all()
 
