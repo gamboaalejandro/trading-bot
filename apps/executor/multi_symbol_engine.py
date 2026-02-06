@@ -361,30 +361,38 @@ class MultiSymbolEngine:
                 logger.error(f"{symbol}: Invalid balance: {balance}")
                 return
             
-            # Risk validation
-            validation = self.risk_manager.validate_position(
-                signal,
+            # Calculate stop loss usando ATR
+            stop_loss = self.risk_manager.calculate_dynamic_stop_loss(
+                df=self.latest_candles[symbol],
                 current_price=current_price,
-                account_balance=balance
+                side='long' if signal.signal_type.value == 'buy' else 'short'
             )
             
-            if not validation['approved']:
-                logger.warning(
-                    f"❌ {symbol} - Trade rejected: {validation['reason']}"
-                )
+            # Calculate safe position size
+            win_rate = 0.55  # Conservative estimate
+            reward_ratio = 2.0  # 1:2 risk/reward
+            
+            quantity = self.risk_manager.calculate_safe_size(
+                balance=balance,
+                entry_price=current_price,
+                stop_loss_price=stop_loss,
+                win_rate=win_rate,
+                reward_ratio=reward_ratio
+            )
+            
+            if quantity <= 0:
+                logger.warning(f"❌ {symbol} - Position size too small: {quantity}")
                 return
             
             # Get safe_list config for position limits
             config = get_symbol_config(symbol)
             max_position_usd = config.get('max_position_size_usd', 1000)
             
-            # Position sizing (respect max_position_size from safe_list)
-            position_size_usd = min(
-                validation['position_size_usd'],
-                max_position_usd
-            )
-            
-            quantity = position_size_usd / current_price
+            # Respect max position size
+            position_value_usd = quantity * current_price
+            if position_value_usd > max_position_usd:
+                quantity = max_position_usd / current_price
+                position_value_usd = max_position_usd
             
             # Log trade details
             logger.info(f"\n{'='*60}")
