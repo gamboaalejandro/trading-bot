@@ -16,9 +16,7 @@ echo "   - Cálculos de position sizing"
 echo "   - Operaciones que SE HABRÍAN ejecutado"
 echo ""
 echo "🛑  Para detener: Presiona Ctrl+C"
-echo ""
 echo "════════════════════════════════════════════════════════════"
-echo ""
 
 # Obtener directorio del proyecto (donde está este script)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,5 +31,6 @@ fi
 
 # Ejecutar Trading Engine desde el directorio raíz
 cd "${PROJECT_ROOT}"
-python3 apps/executor/trading_engine.py
+python3 orchestrator.py
+
 

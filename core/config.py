@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     )
     
     # Redis
-    REDIS_URL: str = Field("redis://localhost:6379", description="Redis Connection URL")
+    REDIS_URL: str = "redis://localhost:6379"
+    
+    # ZeroMQ
+    ZMQ_FEED_HANDLER_URL: str = "tcp://127.0.0.1:5555"
     
     # Trading Configuration
     MAX_DAILY_DRAWDOWN: float = Field(0.05, description="Maximum daily drawdown (5% = 0.05)")
