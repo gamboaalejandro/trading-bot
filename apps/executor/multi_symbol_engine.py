@@ -34,7 +34,11 @@ from config.safe_list import get_active_symbols, get_symbol_config
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console
+        logging.FileHandler('logs/trading_engine.log')  # File
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -73,6 +77,8 @@ class MultiSymbolEngine:
         logger.info(f"Symbols: {self.symbols}")
         logger.info(f"Dry Run: {dry_run}")
         logger.info("=" * 60)
+
+        print("Dry Run: ", dry_run)
         
         # Load trading profile
         self.profile = get_profile(settings.TRADING_PROFILE)
@@ -108,6 +114,7 @@ class MultiSymbolEngine:
         
         # Control
         self.running = False
+        self.tick_count = 0  # Contador para debugging
         
     def _initialize_strategies(self):
         """
@@ -233,6 +240,13 @@ class MultiSymbolEngine:
             tick_data: Normalized ticker data from feed handler
         """
         try:
+            # Incrementar contador
+            self.tick_count += 1
+            
+            # Log cada 100 ticks para confirmar actividad
+            if self.tick_count % 100 == 0:
+                logger.info(f"📊 Processed {self.tick_count} ticks total")
+            
             # Update candles for this symbol
             await self._update_candles(symbol)
             
@@ -271,7 +285,8 @@ class MultiSymbolEngine:
             self.latest_candles[symbol] = df
             self.last_candle_time[symbol] = df['timestamp'].iloc[-1]
             
-            logger.debug(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
+            # Cambiar a INFO para ver actividad
+            logger.info(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
             
         except Exception as e:
             logger.error(f"Error updating candles for {symbol}: {e}", exc_info=True)
@@ -301,6 +316,15 @@ class MultiSymbolEngine:
                 
                 # Execute trade (with portfolio risk check inside)
                 await self._execute_trade(symbol, signal)
+            else:
+                # Log when NO signal (para debugging)
+                if signal:
+                    logger.debug(
+                        f"{symbol}: Signal below threshold "
+                        f"({signal.confidence:.2%} < {self.profile.min_confidence:.2%})"
+                    )
+                else:
+                    logger.debug(f"{symbol}: No signal generated")
                 
         except Exception as e:
             logger.error(f"Error checking signal for {symbol}: {e}", exc_info=True)
@@ -325,7 +349,14 @@ class MultiSymbolEngine:
             current_price = ticker['last']
             
             # Get account balance
-            balance = await self.connector.get_balance()
+            balance_dict = await self.connector.get_balance()
+            
+            # Extract USDT balance (get_balance returns dict)
+            if isinstance(balance_dict, dict):
+                balance = balance_dict.get('USDT', {}).get('free', 0)
+            else:
+                balance = balance_dict  # Fallback if it's already a number
+                
             if not balance or balance <= 0:
                 logger.error(f"{symbol}: Invalid balance: {balance}")
                 return

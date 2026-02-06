@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Script simplificado para ejecutar el bot y VER LOGS
+# TODO en una sola terminal
+
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║   Multi-Symbol Trading Bot - LOGS VISIBLES                ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "✅ Ventaja: Verás TODOS los logs directamente aquí"
+echo "⚠️  Desventaja: Necesitarás 2 terminales (feed + engine)"
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "📋 Instrucciones:"
+echo ""
+echo "Terminal 1: Feed Handler"
+echo "  $ python3 -m apps.ingestion.feed_handler_daemon"
+echo ""
+echo "Terminal 2: Trading Engine"
+echo "  $ python3 -m apps.executor.multi_symbol_engine"
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "O usa el sistema con archivos de log:"
+echo ""
+echo "Terminal 1: Iniciar bot"
+echo "  $ ./run_multi_symbol.sh"
+echo ""
+echo "Terminal 2: Ver logs"
+echo "  $ ./ver_logs_archivos.sh"
+echo ""
+echo "════════════════════════════════════════════════════════════"

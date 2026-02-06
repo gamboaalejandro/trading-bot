@@ -26,9 +26,14 @@ import ccxt.pro as ccxt
 from core.config import settings
 from config.safe_list import get_active_symbols
 
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console
+        logging.FileHandler('logs/feed_handler.log')  # File
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -63,66 +68,94 @@ class MultiSymbolFeedHandler:
         # ZeroMQ Publisher
         self.zmq_context = zmq.asyncio.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.PUB)
+        # self.zmq_socket will be initialized in start()
         
         # Metrics per symbol
         self.messages_sent = {symbol: 0 for symbol in self.symbols}
         self.start_time = None
         
     async def start(self):
-        """Initialize connections and start streaming."""
-        logger.info(f"Starting Multi-Symbol Feed Handler")
-        logger.info(f"Symbols: {self.symbols}")
+        try:
+            print("\n" + "=" * 60)
+            print("🚀 MULTI-SYMBOL FEED HANDLER")
+            print("=" * 60)
+            print(f"Symbols: {self.symbols}")
+            print(f"ZMQ URL: {self.zmq_url}")
+            print("=" * 60 + "\n")
+            
+            print("STEP 1: Setting up ZeroMQ...")
+            # Setup ZeroMQ
+            self.zmq_socket = self.zmq_context.socket(zmq.PUB)
+            self.zmq_socket.bind(self.zmq_url)
+            print(f"✓ ZeroMQ bound to {self.zmq_url}\n")
+            
+            # SKIP load_markets() - CAUSA LOOP INFINITO
+            # Es opcional para watch_tickers, no lo necesitamos
+            print("STEP 2: Skipping load_markets (causes infinite loop)")
+            print("✓ Markets will load automatically on first watch_tickers call\n")
+            
+            print("STEP 3: Starting ticker stream...")
+            print(f"Watching tickers for: {self.symbols}\n")
+            # Start streaming
+            await self._stream_tickers()
+        except Exception as e:
+            print(f"❌ ERROR starting feed handler: {e}")
+            logger.error(f"Error starting feed handler: {e}", exc_info=True)
         
-        # Bind ZMQ Publisher
-        self.zmq_socket.bind(self.zmq_url)
-        logger.info(f"ZMQ Publisher bound to {self.zmq_url}")
-        
-        # Load markets
-        await self.exchange.load_markets()
-        logger.info("Connected to Binance Futures")
-        
-        self.start_time = datetime.now()
-        
-        # Start streaming
-        await self.stream_tickers()
     
-    async def stream_tickers(self):
+    async def _stream_tickers(self):
         """
-        Main loop: Watch tickers from Binance and publish to ZMQ.
+        Stream ticker updates for all symbols.
         
-        Uses watch_tickers (plural) for efficient multi-symbol subscription.
+        Uses ccxt's watch_tickers (WebSocket) for real-time data.
         """
-        logger.info(f"Streaming {len(self.symbols)} symbols...")
+        print("📡 Entering _stream_tickers loop...")
         
         try:
+            msg_count = 0
+            print(f"🔄 Starting watch_tickers for {len(self.symbols)} symbols...")
+            print("Waiting for first tick from Binance...\n")
+            
             while True:
-                # Receive tickers from Binance WebSocket (ALL symbols in one call)
+                # Watch ALL symbols at once (efficient - 1 WebSocket connection)
                 tickers = await self.exchange.watch_tickers(self.symbols)
                 
-                # Process each ticker
-                for symbol, ticker in tickers.items():
-                    if symbol not in self.symbols:
-                        continue  # Skip unexpected symbols
-                    
-                    # Normalize data
-                    normalized_data = self._normalize_ticker(ticker)
-                    
-                    # Publish via ZMQ with topic (symbol-specific)
-                    await self._publish(symbol, normalized_data)
-                    
-                    self.messages_sent[symbol] += 1
+                print(f"✓ Received {len(tickers)} ticker updates")
                 
-                # Log metrics every 100 total messages
-                total_messages = sum(self.messages_sent.values())
-                if total_messages % 100 == 0:
-                    logger.info(f"Published {total_messages} total messages")
-                    for sym in self.symbols:
-                        logger.debug(f"  {sym}: {self.messages_sent[sym]} msgs")
+                # Publish each ticker
+                published_count = 0
+                for symbol, ticker in tickers.items():
+                    # Normalize symbol: remove :USDT suffix (Futures format)
+                    normalized_symbol = symbol.split(':')[0]  # 'BTC/USDT:USDT' -> 'BTC/USDT'
+                    
+                    print(f"   {symbol} -> {normalized_symbol} ... match? {normalized_symbol in self.symbols}")
+                    
+                    if normalized_symbol in self.symbols:
+                        # Normalize data before publishing
+                        normalized_data = self._normalize_ticker(ticker)
+                        # Publish with NORMALIZED symbol name
+                        await self._publish(normalized_symbol, normalized_data)
+                        msg_count += 1
+                        published_count += 1
                         
-        except KeyboardInterrupt:
-            logger.info("Shutting down gracefully...")
+                        # Track per-symbol metrics
+                        if normalized_symbol not in self.messages_sent:
+                            self.messages_sent[normalized_symbol] = 0
+                        self.messages_sent[normalized_symbol] += 1
+                
+                print(f"   ✅ Published: {published_count}/{len(tickers)}\n")
+                
+                # Log stats every 10 messages (no 100 para debugging)
+                if msg_count > 0 and msg_count % 10 == 0:
+                    print(f"\n📊 Published {msg_count} total messages")
+                    for symbol, count in self.messages_sent.items():
+                        print(f"   {symbol}: {count} msgs")
+                    print()
+
+                
         except Exception as e:
-            logger.error(f"Error in stream: {e}", exc_info=True)
+            print(f"❌ ERROR in ticker stream: {e}")
+            logger.error(f"Error in ticker stream: {e}", exc_info=True)
         finally:
             await self.close()
     

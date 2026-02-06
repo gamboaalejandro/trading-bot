@@ -46,8 +46,11 @@ echo ""
 # Obtener PID del engine
 ENGINE_PID=$(ps aux | grep "multi_symbol_engine" | grep -v grep | awk '{print $2}' | head -1)
 
-# Seguir los logs del stderr del engine (donde van los logs)
-tail -f /proc/$ENGINE_PID/fd/2 2>/dev/null || {
+echo "Mostrando TODOS los logs (stdout + stderr)..."
+echo ""
+
+# Combinar stdout y stderr usando tail con multiples archivos
+tail -f /proc/$ENGINE_PID/fd/1 /proc/$ENGINE_PID/fd/2 2>/dev/null || {
     echo "❌ No se pueden leer los logs"
     echo "El proceso puede haber terminado"
 }
