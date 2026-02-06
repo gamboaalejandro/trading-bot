@@ -28,6 +28,32 @@ class RiskConfig:
     max_volatility_threshold: float = 0.05    # 5% ATR threshold
 
 
+@dataclass
+class PortfolioRiskConfig(RiskConfig):
+    """
+    Extended risk config for portfolio-level management.
+    
+    Prevents over-exposure across correlated assets.
+    """
+    # Portfolio-level controls
+    max_total_exposure: float = 0.10  # Max 10% of capital committed across ALL positions
+    max_correlated_positions: int = 2  # Max simultaneous positions in correlated assets
+    
+    # Correlation matrix: Define which assets move together
+    # BTC and ETH are highly correlated (both fall/rise together)
+    correlation_matrix: dict = None
+    
+    def __post_init__(self):
+        """Set default correlation matrix if not provided."""
+        if self.correlation_matrix is None:
+            self.correlation_matrix = {
+                "BTC/USDT": ["ETH/USDT"],  # BTC correlates with ETH
+                "ETH/USDT": ["BTC/USDT"],  # ETH correlates with BTC
+                "SOL/USDT": [],            # SOL less correlated
+            }
+
+
+
 class ProfessionalRiskManager:
     """
     Professional-grade risk manager with circuit breakers and Kelly Criterion.
@@ -247,6 +273,182 @@ class ProfessionalRiskManager:
         )
         
         return stop_loss
+
+
+class PortfolioRiskManager(ProfessionalRiskManager):
+    """
+    Portfolio-level risk management.
+    
+    Extends ProfessionalRiskManager with multi-asset controls:
+    - Global exposure tracking across all positions
+    - Correlation-based position limits
+    - ATR-normalized position sizing (BTC ≠ PEPE)
+    
+    Critical for multi-symbol trading to avoid correlated losses.
+    """
+    
+    def __init__(self, config: PortfolioRiskConfig, current_daily_pnl: float = 0.0):
+        """
+        Initialize portfolio risk manager.
+        
+        Args:
+            config: PortfolioRiskConfig with portfolio controls
+            current_daily_pnl: Current day's P&L
+        """
+        super().__init__(config, current_daily_pnl)
+        self.cfg: PortfolioRiskConfig = config  # Type hint for IDE
+        self.active_positions: dict = {}  # {symbol: position_size_usd}
+    
+    def can_open_position(
+        self,
+        symbol: str,
+        position_size_usd: float,
+        account_balance: float
+    ) -> tuple[bool, str]:
+        """
+        Portfolio-level check: Can we open this position?
+        
+        Checks:
+        1. Total exposure limit
+        2. Correlated positions limit
+        
+        Args:
+            symbol: Trading pair
+            position_size_usd: Proposed position size in USD
+            account_balance: Current account balance
+            
+        Returns:
+            (approved, reason)
+        """
+        # Check 1: Total exposure
+        current_exposure = sum(self.active_positions.values())
+        new_exposure = current_exposure + position_size_usd
+        max_exposure = account_balance * self.cfg.max_total_exposure
+        
+        if new_exposure > max_exposure:
+            reason = (
+                f"Total exposure would be ${new_exposure:.2f} "
+                f"> ${max_exposure:.2f} ({self.cfg.max_total_exposure*100}%)"
+            )
+            logger.warning(f"❌ {symbol} - Portfolio REJECTED: {reason}")
+            return False, reason
+        
+        # Check 2: Correlated positions
+        correlated_symbols = self.cfg.correlation_matrix.get(symbol, [])
+        correlated_open = sum(
+            1 for s in correlated_symbols if s in self.active_positions
+        )
+        
+        if correlated_open >= self.cfg.max_correlated_positions:
+            reason = (
+                f"{symbol} correlates with {correlated_open} open positions: "
+                f"{[s for s in correlated_symbols if s in self.active_positions]}"
+            )
+            logger.warning(f"❌ {symbol} - Portfolio REJECTED: {reason}")
+            return False, reason
+        
+        logger.info(
+            f"✓ {symbol} - Portfolio approved "
+            f"(exposure: ${new_exposure:.2f}/{max_exposure:.2f})"
+        )
+        return True, "OK"
+    
+    def register_position(self, symbol: str, size_usd: float):
+        """
+        Register new position (call after order execution).
+        
+        Args:
+            symbol: Trading pair
+            size_usd: Position size in USD
+        """
+        self.active_positions[symbol] = size_usd
+        total = sum(self.active_positions.values())
+        logger.info(
+            f"Position registered: {symbol} @ ${size_usd:.2f} "
+            f"(total exposure: ${total:.2f})"
+        )
+    
+    def close_position(self, symbol: str):
+        """
+        Remove position from tracking (call after close).
+        
+        Args:
+            symbol: Trading pair
+        """
+        if symbol in self.active_positions:
+            size = self.active_positions.pop(symbol)
+            logger.info(f"Position closed: {symbol} (was ${size:.2f})")
+    
+    def calculate_atr_normalized_size(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        account_balance: float,
+        max_risk_usd: float,
+        current_price: float
+    ) -> float:
+        """
+        Calculate position size normalized by volatility (ATR).
+        
+        This ensures that BTC (low volatility) and PEPE (high volatility)
+        have the same DOLLAR RISK, not the same number of units.
+        
+        Formula: Position Size = Risk $ / (ATR × Multiplier)
+        
+        Example:
+        - BTC: ATR=$1000, Risk=$200 → 0.1 BTC
+        - PEPE: ATR=$0.0001, Risk=$200 → 2,000,000 PEPE
+        Both have same $200 risk.
+        
+        Args:
+            symbol: Trading pair
+            df: OHLC DataFrame
+            account_balance: Account balance
+            max_risk_usd: Maximum risk in USD
+            current_price: Current market price
+            
+        Returns:
+            Position size in base currency units
+        """
+        # Calculate ATR
+        atr_period = self.cfg.default_atr_period
+        
+        if len(df) < atr_period:
+            logger.warning(
+                f"{symbol}: Insufficient data for ATR ({len(df)} < {atr_period}), "
+                f"using fallback sizing"
+            )
+            # Fallback: simple percentage of balance
+            return (max_risk_usd / current_price)
+        
+        # Calculate True Range
+        df = df.copy()
+        df['tr'] = np.maximum(
+            df['high'] - df['low'],
+            np.maximum(
+                abs(df['high'] - df['close'].shift(1)),
+                abs(df['low'] - df['close'].shift(1))
+            )
+        )
+        
+        atr = df['tr'].rolling(window=atr_period).mean().iloc[-1]
+        
+        if pd.isna(atr) or atr <= 0:
+            logger.warning(f"{symbol}: Invalid ATR ({atr}), using fallback")
+            return (max_risk_usd / current_price)
+        
+        # Normalize by ATR
+        atr_multiplier = self.cfg.default_atr_multiplier
+        position_size = max_risk_usd / (atr * atr_multiplier)
+        
+        logger.info(
+            f"{symbol} - ATR Sizing: "
+            f"ATR=${atr:.4f}, Risk=${max_risk_usd:.2f}, "
+            f"Size={position_size:.6f} units"
+        )
+        
+        return position_size
+
 
 
 # Backward compatibility: Keep old RiskManager as alias

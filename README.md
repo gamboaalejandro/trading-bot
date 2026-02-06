@@ -1,332 +1,313 @@
-# Sistema de Trading Algorítmico
+# 🚀 Multi-Symbol Portfolio Trading Bot
 
-Sistema profesional de trading automatizado para Binance Futures con estrategias técnicas, gestión de riesgo avanzada y monitoreo en tiempo real.
+Sistema de trading automatizado para criptomonedas con soporte multi-par, gestión de riesgo a nivel portfolio, y estrategias personalizables.
 
-## 🎯 Características Principales
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- **Estrategias de Trading Implementadas**
-  - Momentum Strategy (RSI + Moving Average Crossover)
-  - Mean Reversion Strategy (Bollinger Bands + RSI)
-  
-- **Gestión Profesional de Riesgo**
-  - Circuit breakers (límites de pérdida diaria)
-  - Fractional Kelly Criterion para sizing
-  - Stop Loss automático basado en ATR
-  - Validación de volatilidad
-  
-- **Conexión a Binance**
-  - Testnet/Demo Trading (dinero de prueba)
-  - Producción (trading real) ⚠️
-  - Sistema ZeroMQ para datos en tiempo real
-  
-- **Motor de Trading**
-  - Ejecución automatizada de estrategias
-  - Monitoreo de posiciones
-  - Tracking de P&L
-  - Modo DRY_RUN para simulación
+---
 
-## 📁 Estructura del Proyecto
+## 📋 Características Principales
 
-```
-trading-bot/
-├── apps/
-│   ├── ingestion/          # Sistema ZeroMQ - Datos en tiempo real
-│   │   ├── feed_handler.py # Conexión a Binance WebSocket
-│   │   └── binance_ws_manager.py
-│   │
-│   └── executor/           # Sistema de Trading
-│       ├── strategies/     # Estrategias implementadas
-│       │   ├── base_strategy.py
-│       │   ├── momentum_strategy.py
-│       │   ├── mean_reversion_strategy.py
-│       │   └── strategy_manager.py
-│       │
-│       ├── testnet_connector.py  # Conexión a Binance
-│       ├── risk_manager.py       # Gestión de riesgo
-│       ├── account_manager.py    # Tracking de cuenta
-│       └── trading_engine.py     # Motor principal
-│
-├── examples/               # Scripts de ejemplo
-│   ├── check_status.py    # Ver balance y posiciones
-│   ├── open_first_position.py  # Abrir posición manual
-│   └── close_position.py  # Cerrar posiciones
-│
-├── core/
-│   └── config.py          # Configuración central
-│
-├── .env                   # Variables de entorno
-└── run_trading_engine.sh  # Iniciar trading automático
-```
+### **Multi-Symbol Trading**
+- ✅ Soporte para múltiples pares simultáneos (BTC, ETH, SOL...)
+- ✅ Un solo WebSocket para todos los pares (eficiente)
+- ✅ Arquitectura event-driven (procesamiento asíncrono)
 
-## 🚀 Inicio Rápido
+### **Portfolio Risk Management**
+- ✅ Control de exposición global (límite 10% del capital)
+- ✅ Gestión de correlación (evita sobre-exposición BTC+ETH)
+- ✅ ATR normalization (mismo riesgo $ para volatilidades diferentes)
 
-### 1. Configuración Inicial
+### **Estrategias Personalizables**
+- ✅ Mean Reversion para pares estables (BTC, ETH)
+- ✅ Momentum para pares volátiles (SOL, MATIC)
+- ✅ Parámetros específicos por par
+
+### **Seguridad**
+- ✅ Modo DRY_RUN (simulación sin órdenes reales)
+- ✅ Testnet de Binance soportado
+- ✅ Circuit breakers y kill switches
+- ✅ Profiles de riesgo (Conservative, Moderate, Advanced)
+
+---
+
+## 🚀 Quick Start
+
+### **1. Instalación**
 
 ```bash
-# Crear entorno virtual
+# Clonar repositorio
+git clone https://github.com/yourusername/trading-bot.git
+cd trading-bot
+
+# Crear virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
 # Instalar dependencias
 pip install -r requirements.txt
+```
 
-# Configurar variables de entorno
+### **2. Configuración**
+
+Copiar y editar `.env`:
+
+```bash
 cp .env.example .env
-# Edita .env con tus API keys
+nano .env
 ```
 
-### 2. Obtener API Keys de Testnet
-
-1. Ve a https://testnet.binancefuture.com/
-2. Inicia sesión o crea cuenta
-3. Ve a "API Management"
-4. Genera API Key + Secret
-5. Actualiza `.env`:
-   ```env
-   BINANCE_TESTNET_API_KEY=tu_key_aqui
-   BINANCE_TESTNET_SECRET=tu_secret_aqui
-   USE_TESTNET=true
-   ```
-
-### 3. Primeros Pasos
-
-#### Ver Estado de Cuenta
+**Configuración mínima:**
 ```bash
-python3 examples/check_status.py
+# Binance Testnet (recomendado para empezar)
+BINANCE_TESTNET_API_KEY=your_testnet_key
+BINANCE_TESTNET_SECRET=your_testnet_secret
+USE_TESTNET=true
+
+# Modo simulación (NO ejecuta órdenes reales)
+DRY_RUN=true
+
+# Perfil de trading
+TRADING_PROFILE=conservative  # conservative | moderate | advanced
 ```
 
-#### Abrir Primera Posición (Manual)
-```bash
-python3 examples/open_first_position.py
-```
+> **Obtener API Keys testnet:** https://testnet.binancefuture.com/
 
-#### Trading Automático
-```bash
-./run_trading_engine.sh
-```
-
-## 📊 Estrategias de Trading
-
-### 1. Momentum Strategy
-
-**Concepto Económico:**
-Capitaliza la tendencia de que los activos que han subido recientemente tienden a seguir subiendo (y viceversa). Se basa en el principio de que "la tendencia es tu amiga".
-
-**Funcionamiento:**
-- **Indicadores:** RSI (Relative Strength Index) + EMA Crossover
-- **Señal LONG:** RSI > 50 Y EMA rápida cruza por encima de EMA lenta
-- **Señal SHORT:** RSI < 50 Y EMA rápida cruza por debajo de EMA lenta
-- **Stop Loss:** 2x ATR desde el precio de entrada
-- **Take Profit:** 3x el riesgo (ratio 1:3)
-
-**Contabilidad:**
-```
-Ejemplo LONG en BTC/USDT:
-- Precio entrada: $50,000
-- Cantidad: 0.1 BTC (calculada por risk manager)
-- Stop Loss: $49,000 (2% riesgo)
-- Take Profit: $53,000 (6% ganancia)
-
-Riesgo: 0.1 BTC × $1,000 = $100 USDT
-Ganancia potencial: 0.1 BTC × $3,000 = $300 USDT
-Risk/Reward: 1:3
-```
-
-### 2. Mean Reversion Strategy
-
-**Concepto Económico:**
-Se basa en que los precios tienden a volver a su media histórica. Cuando el precio se aleja mucho de la media, es probable que regrese.
-
-**Funcionamiento:**
-- **Indicadores:** Bollinger Bands + RSI
-- **Señal LONG:** Precio toca banda inferior Y RSI < 30 (sobreventa)
-- **Señal SHORT:** Precio toca banda superior Y RSI > 70 (sobrecompra)
-- **Stop Loss:** Fuera de las bandas
-- **Take Profit:** Banda del medio (media móvil)
-
-**Contabilidad:**
-```
-Ejemplo LONG en ETH/USDT:
-- Precio entrada: $3,000 (banda inferior)
-- Media móvil (target): $3,150
-- Stop Loss: $2,950
-- Cantidad: calculada para arriesgar 2% del balance
-
-Si balance = $10,000:
-Riesgo máximo = $200
-Riesgo por unidad = $3,000 - $2,950 = $50
-Cantidad segura = $200 / $50 = 4 ETH
-```
-
-## ⚙️ Gestión de Riesgo
-
-El sistema implementa múltiples capas de protección:
-
-### 1. Circuit Breakers
-```python
-MAX_DAILY_DRAWDOWN = 5%  # Si pierdes 5% en un día, se detiene
-```
-
-### 2. Kelly Criterion (Fraccional)
-```python
-# Calcula el tamaño óptimo basado en:
-kelly = (win_rate - (1 - win_rate) / reward_ratio) × kelly_fraction
-
-# Ejemplo:
-# win_rate = 55%, reward_ratio = 2.0, kelly_fraction = 0.25
-kelly = (0.55 - 0.45/2.0) × 0.25 = 0.08125  # 8.125% del balance
-```
-
-### 3. Hard Caps
-```python
-MAX_RISK_PER_TRADE = 2%  # Nunca arriesgar más del 2% por operación
-```
-
-### 4. ATR-Based Stop Loss
-```python
-stop_loss = entry_price ± (ATR × 2.0)  # 2x el rango promedio
-```
-
-## 🔧 Configuración Avanzada
-
-### Variables de Entorno `.env`
-
-```env
-# Conexión
-USE_TESTNET=true                    # true = testnet, false = producción
-BINANCE_TESTNET_API_KEY=your_key
-BINANCE_TESTNET_SECRET=your_secret
-
-# Trading Engine
-DRY_RUN=true                        # true = simulación, false = real
-TRADING_SYMBOL=BTC/USDT
-TRADING_TIMEFRAME=5m                # 1m, 5m, 15m, 1h, etc.
-CHECK_INTERVAL=60                   # Segundos entre checks
-
-# Risk Management
-MAX_DAILY_DRAWDOWN=0.05             # 5%
-MAX_RISK_PER_TRADE=0.02             # 2%
-KELLY_FRACTION=0.25                 # 1/4 Kelly
-MIN_NOTIONAL_USDT=10.0              # Mínimo $10 por operación
-
-# Redis (para ZeroMQ)
-REDIS_URL=redis://localhost:6379/0
-```
-
-## 📈 Sistema ZeroMQ - Datos en Tiempo Real
-
-El sistema usa ZeroMQ para recibir actualizaciones de precio en tiempo real:
+### **3. Ejecutar**
 
 ```bash
-# Iniciar feed handler
-./run_feed_handler.sh
-
-# Los datos fluyen automáticamente al trading engine
+./run_multi_symbol.sh
 ```
 
-**Ventajas:**
-- Latencia ultra-baja
-- No polling innecesario
-- Escalable a múltiples suscriptores
-
-## 🎓 Conceptos Económicos
-
-### P&L (Profit & Loss)
+**Output esperado:**
 ```
-P&L Realizado = Precio Salida - Precio Entrada × Cantidad
-P&L No Realizado = Precio Actual - Precio Entrada × Cantidad
-
-Ejemplo:
-Compra: 1 BTC @ $50,000
-Precio actual: $51,000
-P&L no realizado = ($51,000 - $50,000) × 1 = +$1,000
+=========================================
+MULTI-SYMBOL TRADING BOT
+=========================================
+✓ Multi-Symbol Feed Handler (BTC/ETH/SOL)
+✓ Multi-Symbol Trading Engine
+Trading pairs: BTC/USDT, ETH/USDT, SOL/USDT
+Mode: DRY_RUN (simulación)
 ```
-
-### Apalancamiento
-```
-Apalancamiento = Valor Total Posición / Margen Usado
-
-Ejemplo 10x:
-Balance: $1,000
-Con apalancamiento 10x: Puedes controlar $10,000
-Margen requerido: $1,000
-
-⚠️ Mayor ganancia potencial = Mayor riesgo de liquidación
-```
-
-### Liquidación
-```
-Precio Liquidación (LONG) = Precio Entrada × (1 - 1/Apalancamiento)
-
-Ejemplo:
-Entrada: $50,000 con 10x
-Liquidación: $50,000 × (1 - 1/10) = $45,000
-
-Si BTC cae a $45,000, pierdes todo el margen ❌
-```
-
-## ⚠️ Advertencias
-
-- **Testnet primero:** Siempre prueba en testnet antes de usar dinero real
-- **DRY_RUN mode:** Usa simulación hasta estar 100% seguro
-- **Risk management:** Nunca desactives los límites de riesgo
-- **Apalancamiento:** Usa 1x-3x máximo hasta tener experiencia
-- **Monitoreo:** Supervisa las operaciones regularmente
-
-## 🚨 Modo Producción
-
-Para activar trading real:
-
-```env
-USE_TESTNET=false
-DRY_RUN=false
-BINANCE_API_KEY=tu_key_producción
-BINANCE_SECRET=tu_secret_producción
-```
-
-**⚠️ SOLO CUANDO ESTÉS COMPLETAMENTE SEGURO**
-
-## 📚 Comandos Útiles
-
-```bash
-# Ver estado
-python3 examples/check_status.py
-
-# Abrir posición manual
-python3 examples/open_first_position.py
-
-# Cerrar todas las posiciones
-python3 examples/close_position.py
-
-# Trading automático
-./run_trading_engine.sh
-
-# Monitorear logs
-tail -f logs/trading_engine.log
-```
-
-## 🛠️ Troubleshooting
-
-### "Invalid API Key"
-- Verifica que las keys sean de testnet si `USE_TESTNET=true`
-- Regenera las keys en https://testnet.binancefuture.com/
-
-### "Insufficient balance"
-- Ve a testnet y haz clic en "Get Test Funds"
-
-### Estrategias no generan señales
-- Verifica que hay suficiente historial de precios
-- Ajusta los parámetros de las estrategias
-- Revisa los logs para ver por qué no se generan señales
-
-## 📄 Licencia
-
-MIT License - Ver archivo LICENSE
-
-## ⚡ Soporte
-
-Para problemas o preguntas, revisa los logs en `logs/` o el código fuente en `apps/executor/`.
 
 ---
 
-**Desarrollado para trading algorítmico profesional con gestión de riesgo institucional.**
+## ⚙️ Configuración de Pares
+
+### **Agregar nuevo par:**
+
+Editar [`config/safe_list.py`](config/safe_list.py):
+
+```python
+"MATIC/USDT": {
+    "enabled": True,
+    "tier": "VOLATILE",
+    "strategy": "momentum",
+    "leverage": 2,
+    "max_position_size_usd": 800,
+    "params": {
+        "rsi_period": 9,
+        "ma_fast": 8,
+        "ma_slow": 21
+    }
+}
+```
+
+Reiniciar el bot → detectará automáticamente el nuevo par.
+
+### **Desactivar par:**
+
+```python
+"SOL/USDT": {
+    "enabled": False,  # Solo cambiar esto
+    ...
+}
+```
+
+---
+
+## 📊 Perfiles de Trading
+
+| Perfil | Capital | Combinación | Min Conf | Risk/Trade |
+|---|---|---|---|---|
+| **Conservative** | < $10k | Consensus (100%) | 65% | 1% |
+| **Moderate** | $10k-$50k | Majority (>50%) | 60% | 2% |
+| **Advanced** | > $50k | Weighted | 55% | 3% |
+
+Ver [`PERFILES_GUIA.md`](PERFILES_GUIA.md) para detalles completos.
+
+---
+
+## 📈 Estrategias Disponibles
+
+### **1. Mean Reversion**
+- **Para:** BTC, ETH (pares estables)
+- **Lógica:** Compra oversold, vende overbought
+- **Indicadores:** RSI + Bollinger Bands
+
+### **2. Momentum**
+- **Para:** SOL, MATIC (pares volátiles)
+- **Lógica:** Sigue tendencias fuertes
+- **Indicadores:** RSI + Moving Averages
+
+Ver [`TRADING_STRATEGIES.md`](TRADING_STRATEGIES.md) para análisis económico completo.
+
+---
+
+## 🏗️ Arquitectura
+
+```
+Safe List Config
+       ↓
+Feed Handler (Binance WS) ──→ Multi-Symbol Engine
+       │                              │
+    ZeroMQ                    Portfolio Risk Manager
+   (Topics)                      (Exposure + Correlation)
+```
+
+**Componentes:**
+1. **Safe List:** Configuración de pares ([`config/safe_list.py`](config/safe_list.py))
+2. **Feed Handler:** WebSocket → ZeroMQ ([`apps/ingestion/`](apps/ingestion/))
+3. **Multi-Symbol Engine:** Procesamiento y trading ([`apps/executor/multi_symbol_engine.py`](apps/executor/multi_symbol_engine.py))
+4. **Portfolio Risk Manager:** Control global de riesgo ([`apps/executor/risk_manager.py`](apps/executor/risk_manager.py))
+
+---
+
+## 📁 Estructura del Proyecto
+
+```
+trading-bot/
+├── config/
+│   └── safe_list.py              # Configuración de pares
+├── apps/
+│   ├── ingestion/
+│   │   └── feed_handler_daemon.py   # WebSocket → ZeroMQ
+│   └── executor/
+│       ├── multi_symbol_engine.py   # Motor principal
+│       ├── risk_manager.py          # Portfolio risk
+│       ├── profiles.py              # Trading profiles
+│       └── strategies/              # Estrategias de trading
+├── orchestrator.py                  # Launch manager
+├── run_multi_symbol.sh              # Script de ejecución
+└── README_TECHNICAL.md              # Docs para desarrolladores
+```
+
+---
+
+## 🔧 Para Desarrolladores
+
+### **Agregar nueva estrategia:**
+
+Ver guía completa en [`README_TECHNICAL.md`](README_TECHNICAL.md#-cómo-agregar-nueva-estrategia)
+
+### **Extender sistema:**
+
+- **Portfolio Risk:** Editar [`apps/executor/risk_manager.py`](apps/executor/risk_manager.py)
+- **Nuevos indicadores:** Crear en [`apps/executor/strategies/`](apps/executor/strategies/)
+- **Database persistence:** Ver roadmap en docs técnicas
+
+---
+
+## ⚠️ Gestión de Riesgo
+
+### **Portfolio-Level Controls:**
+
+**1. Exposición Global:**
+```
+Max 10% del capital total en riesgo
+Ejemplo: Capital $10k → Max $1000 en posiciones
+```
+
+**2. Correlación:**
+```
+BTC y ETH están correlacionados
+Si BTC abierto → limitar ETH (máx 2 correlated)
+```
+
+**3. ATR Normalization:**
+```
+BTC volátil: compra menos units
+SOL estable: compra más units
+→ Mismo riesgo en $$$
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+# Test configuración
+python3 config/safe_list.py
+
+# Test feed handler
+python3 -m apps.ingestion.feed_handler_daemon
+
+# Test engine (requiere feed corriendo)
+python3 -m apps.executor.multi_symbol_engine
+```
+
+---
+
+## 📚 Documentación
+
+- 📘 [`README_TECHNICAL.md`](README_TECHNICAL.md) - Guía técnica para desarrolladores
+- 📗 [`PERFILES_GUIA.md`](PERFILES_GUIA.md) - Guía de perfiles de trading
+- 📕 [`TRADING_STRATEGIES.md`](TRADING_STRATEGIES.md) - Análisis económico de estrategias
+- 📙 [`ESTRATEGIAS_POR_PAR.md`](ESTRATEGIAS_POR_PAR.md) - Configuración por par
+
+---
+
+## 🔮 Roadmap
+
+- [ ] **Database Persistence:** State recovery con SQLite
+- [ ] **ML Interface:** Preparación para RL agents (PPO, DQN)
+- [ ] **Web Dashboard:** Visualización en tiempo real
+- [ ] **Telegram Bot:** Alertas y control remoto
+- [ ] **Backtesting:** Test histórico de estrategias
+
+---
+
+## 🛡️ Seguridad
+
+- ✅ **DRY_RUN mode:** Prueba sin riesgo
+- ✅ **Testnet primero:** Nunca empieces en producción
+- ✅ **Kill Switch:** Detiene si pérdida diaria > 5%
+- ✅ **API Keys en .env:** Nunca en código
+- ✅ **Stop Loss dinámico:** Basado en ATR
+
+---
+
+## ⚖️ Licencia
+
+MIT License - Ver [LICENSE](LICENSE)
+
+---
+
+## ⚠️ Disclaimer
+
+**Este bot es para fines educacionales.** Trading de criptomonedas conlleva riesgo significativo de pérdida. 
+
+**IMPORTANTE:**
+- Prueba SIEMPRE en modo DRY_RUN primero
+- Usa Binance Testnet antes de capital real
+- Nunca inviertas más de lo que puedes perder
+- El autor NO se responsabiliza por pérdidas
+
+---
+
+## 🤝 Contribuir
+
+Contributions are welcome!
+
+1. Fork el repositorio
+2. Crea feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit cambios (`git commit -m 'Add AmazingFeature'`)
+4. Push al branch (`git push origin feature/AmazingFeature`)
+5. Abre Pull Request
+
+---
+
+**Última actualización:** 2026-02-06  
+**Versión:** 1.0.0 (Multi-Symbol)  
+**Mantenedor:** [Tu Nombre]

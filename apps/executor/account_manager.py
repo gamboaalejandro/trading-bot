@@ -181,9 +181,11 @@ class AccountManager:
         
         self.open_positions[symbol] = position
         
+        sl_str = f"${stop_loss:.2f}" if stop_loss else "None"
+        tp_str = f"${take_profit:.2f}" if take_profit else "None"
         logger.info(
             f"✓ Opened {side.upper()} position: {size} {symbol} @ ${entry_price:.2f} "
-            f"(SL: ${stop_loss:.2f if stop_loss else 'None'})"
+            f"(SL: {sl_str}, TP: {tp_str})"
         )
         
         return position

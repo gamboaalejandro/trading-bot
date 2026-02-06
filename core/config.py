@@ -16,6 +16,21 @@ class Settings(BaseSettings):
     
     # Environment
     ENV: str = Field("development", description="Environment: development, production")
+    DRY_RUN: bool = Field(default=True, description="Dry run mode")
+    
+    # Trading Profile Configuration
+    TRADING_PROFILE: str = Field(
+        default="conservative",
+        description="Trading profile: conservative, moderate, advanced"
+    )
+    MIN_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.60,
+        description="Minimum confidence threshold for signal execution (0.0-1.0)"
+    )
+    STRATEGY_COMBINATION_METHOD: str = Field(
+        default="consensus",
+        description="Method to combine strategies: consensus, majority, weighted, any"
+    )
     
     # Redis
     REDIS_URL: str = Field("redis://localhost:6379", description="Redis Connection URL")

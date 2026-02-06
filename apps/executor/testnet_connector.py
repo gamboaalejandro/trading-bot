@@ -11,8 +11,13 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from core.config import settings
+from ccxt.base.errors import RequestTimeout, NetworkError
 
 logger = logging.getLogger(__name__)
+
+# Configuración para reintentos
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # segundos
 
 
 class TestnetConnector:
@@ -54,7 +59,9 @@ class TestnetConnector:
             'apiKey': api_key,
             'secret': secret,
             'enableRateLimit': True,
-            'options': options
+            'options': options,
+            'timeout': 30000,  # 30 segundos (el testnet es lento)
+            'rateLimit': 500,  # ms entre requests
         })
         self.exchange.enable_demo_trading(True)
 
@@ -152,7 +159,7 @@ class TestnetConnector:
         reduce_only: bool = False
     ) -> Dict[str, Any]:
         """
-        Create market order.
+        Create market order with retry logic.
         
         Args:
             symbol: Trading pair (e.g., 'BTC/USDT')
@@ -172,17 +179,35 @@ class TestnetConnector:
         
         logger.info(f"Creating MARKET {side.upper()} order: {amount} {symbol}")
         
-        order = await self.exchange.create_order(
-            symbol=symbol,
-            type='market',
-            side=side,
-            amount=amount,
-            params=params
-        )
-        
-        logger.info(f"✓ Order created: {order.get('id')} | Status: {order.get('status')}")
-        
-        return order
+        # Retry logic para manejar timeouts del testnet
+        for attempt in range(MAX_RETRIES):
+            try:
+                order = await self.exchange.create_order(
+                    symbol=symbol,
+                    type='market',
+                    side=side,
+                    amount=amount,
+                    params=params
+                )
+                
+                logger.info(f"✓ Order created: {order.get('id')} | Status: {order.get('status')}")
+                return order
+                
+            except (RequestTimeout, NetworkError) as e:
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = RETRY_DELAY * (2 ** attempt)  # Backoff exponencial
+                    logger.warning(
+                        f"⚠️ Timeout/Network error (attempt {attempt + 1}/{MAX_RETRIES}). "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Failed after {MAX_RETRIES} attempts")
+                    raise
+            except Exception as e:
+                # Otros errores no se reintenta
+                logger.error(f"❌ Order creation failed: {e}")
+                raise
     
     async def create_limit_order(
         self,

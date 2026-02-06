@@ -118,6 +118,12 @@ class StrategyManager:
         # Apply combination method
         if self.combination_method == 'consensus':
             return self._consensus_signal(actionable_signals, min_confidence)
+        elif self.combination_method == 'majority':
+            return self._majority_signal(actionable_signals, min_confidence)
+        elif self.combination_method == 'weighted':
+            return self._weighted_signal(actionable_signals, min_confidence)
+        elif self.combination_method == 'any':
+            return self._any_signal(actionable_signals, min_confidence)
         elif self.combination_method == 'first_match':
             return self._first_match_signal(actionable_signals, min_confidence)
         elif self.combination_method == 'highest_confidence':
@@ -208,6 +214,114 @@ class StrategyManager:
             f"(confidence: {best_signal.confidence:.2%})"
         )
         
+        return best_signal
+    
+    def _majority_signal(
+        self,
+        signals: Dict[str, Signal],
+        min_confidence: float
+    ) -> Optional[Signal]:
+        """
+        Require majority (>50%) of strategies to agree.
+        Similar to consensus but more lenient.
+        """
+        if not signals:
+            return None
+        
+        # Count valid signals
+        buy_signals = [
+            sig for sig in signals.values()
+            if sig.signal_type == SignalType.BUY and sig.confidence >= min_confidence
+        ]
+        sell_signals = [
+            sig for sig in signals.values()
+            if sig.signal_type == SignalType.SELL and sig.confidence >= min_confidence
+        ]
+        
+        total_strategies = len(signals)
+        threshold = total_strategies / 2  # >50%
+        
+        if len(buy_signals) > threshold:
+            logger.debug(f"Majority BUY: {len(buy_signals)}/{total_strategies} strategies")
+            return self._average_signals(buy_signals, 'buy')
+        elif len(sell_signals) > threshold:
+            logger.debug(f"Majority SELL: {len(sell_signals)}/{total_strategies} strategies")
+            return self._average_signals(sell_signals, 'sell')
+        
+        logger.debug(
+            f"No majority: {len(buy_signals)} BUY, {len(sell_signals)} SELL "
+            f"(need > {threshold:.1f})"
+        )
+        return None
+    
+    def _weighted_signal(
+        self,
+        signals: Dict[str, Signal],
+        min_confidence: float
+    ) -> Optional[Signal]:
+        """
+        Weight signals by their confidence scores.
+        Returns strongest overall direction.
+        """
+        if not signals:
+            return None
+        
+        # Calculate weighted scores
+        buy_weight = sum(
+            sig.confidence
+            for sig in signals.values()
+            if sig.signal_type == SignalType.BUY and sig.confidence >= min_confidence
+        )
+        sell_weight = sum(
+            sig.confidence
+            for sig in signals.values()
+            if sig.signal_type == SignalType.SELL and sig.confidence >= min_confidence
+        )
+        
+        # Require significant difference (>0.3)
+        weight_diff = abs(buy_weight - sell_weight)
+        if weight_diff < 0.3:
+            logger.debug(f"Weights too close: BUY={buy_weight:.2f}, SELL={sell_weight:.2f}")
+            return None
+        
+        if buy_weight > sell_weight:
+            buy_signals = [
+                sig for sig in signals.values()
+                if sig.signal_type == SignalType.BUY and sig.confidence >= min_confidence
+            ]
+            logger.debug(f"Weighted BUY wins: {buy_weight:.2f} vs {sell_weight:.2f}")
+            return self._average_signals(buy_signals, 'buy')
+        else:
+            sell_signals = [
+                sig for sig in signals.values()
+                if sig.signal_type == SignalType.SELL and sig.confidence >= min_confidence
+            ]
+            logger.debug(f"Weighted SELL wins: {sell_weight:.2f} vs {buy_weight:.2f}")
+            return self._average_signals(sell_signals, 'sell')
+    
+    def _any_signal(
+        self,
+        signals: Dict[str, Signal],
+        min_confidence: float
+    ) -> Optional[Signal]:
+        """
+        Accept any signal above confidence threshold.
+        Returns highest confidence signal.
+        """
+        valid_signals = [
+            sig for sig in signals.values()
+            if sig.confidence >= min_confidence
+        ]
+        
+        if not valid_signals:
+            return None
+        
+        # Return highest confidence
+        best_signal = max(valid_signals, key=lambda s: s.confidence)
+        logger.debug(
+            f"ANY method: {best_signal.signal_type.value} "
+            f"(confidence: {best_signal.confidence:.2%})"
+        )
         return best_signal
     
     def _average_signals(self, signals: List[Signal], signal_type: str) -> Signal:
