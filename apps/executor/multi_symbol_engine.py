@@ -401,9 +401,10 @@ class MultiSymbolEngine:
             logger.info(f"Signal: {signal.signal_type.value.upper()}")
             logger.info(f"Confidence: {signal.confidence:.2%}")
             logger.info(f"Current Price: ${current_price:,.2f}")
-            logger.info(f"Position Size: ${position_size_usd:,.2f} ({quantity:.6f} units)")
-            logger.info(f"Stop Loss: ${validation['stop_loss']:,.2f}")
-            logger.info(f"Risk/Reward: 1:{validation['risk_reward_ratio']:.2f}")
+            logger.info(f"Position Size: ${position_value_usd:,.2f} ({quantity:.6f} units)")
+            logger.info(f"Stop Loss: ${stop_loss:,.2f}")
+            risk_amount = abs(current_price - stop_loss) * quantity
+            logger.info(f"Risk Amount: ${risk_amount:,.2f}")
             logger.info(f"Account Balance: ${balance:,.2f}")
             
             if self.dry_run:
@@ -430,7 +431,7 @@ class MultiSymbolEngine:
                     'side': signal.signal_type.value,
                     'entry_price': current_price,
                     'quantity': quantity,
-                    'stop_loss': validation['stop_loss'],
+                    'stop_loss': stop_loss,
                     'timestamp': datetime.now()
                 })
             else:
