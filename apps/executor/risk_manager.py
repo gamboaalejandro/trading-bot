@@ -22,7 +22,7 @@ class RiskConfig:
     
     # Stop loss configuration
     default_atr_period: int = 14
-    default_atr_multiplier: float = 2.0       # Increased from 1.5 for crypto volatility
+    default_atr_multiplier: float = 3.5       # Wide stops for Spot swing trading (was 2.0 for Futures)
     
     # Volatility filter
     max_volatility_threshold: float = 0.05    # 5% ATR threshold

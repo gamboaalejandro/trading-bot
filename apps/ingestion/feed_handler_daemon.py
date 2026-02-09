@@ -105,59 +105,97 @@ class MultiSymbolFeedHandler:
     
     async def _stream_tickers(self):
         """
-        Stream ticker updates for all symbols.
+        Stream ticker updates for all symbols with auto-recovery.
         
         Uses ccxt's watch_tickers (WebSocket) for real-time data.
+        Automatically reconnects if connection is lost.
         """
         print("📡 Entering _stream_tickers loop...")
         
-        try:
-            msg_count = 0
-            print(f"🔄 Starting watch_tickers for {len(self.symbols)} symbols...")
-            print("Waiting for first tick from Binance...\n")
-            
-            while True:
-                # Watch ALL symbols at once (efficient - 1 WebSocket connection)
-                tickers = await self.exchange.watch_tickers(self.symbols)
+        reconnect_count = 0
+        max_reconnects = 10
+        
+        while reconnect_count < max_reconnects:
+            try:
+                msg_count = 0
+                print(f"🔄 Starting watch_tickers for {len(self.symbols)} symbols...")
+                print("Waiting for first tick from Binance...\n")
                 
-                print(f"✓ Received {len(tickers)} ticker updates")
-                
-                # Publish each ticker
-                published_count = 0
-                for symbol, ticker in tickers.items():
-                    # Normalize symbol: remove :USDT suffix (Futures format)
-                    normalized_symbol = symbol.split(':')[0]  # 'BTC/USDT:USDT' -> 'BTC/USDT'
-                    
-                    print(f"   {symbol} -> {normalized_symbol} ... match? {normalized_symbol in self.symbols}")
-                    
-                    if normalized_symbol in self.symbols:
-                        # Normalize data before publishing
-                        normalized_data = self._normalize_ticker(ticker)
-                        # Publish with NORMALIZED symbol name
-                        await self._publish(normalized_symbol, normalized_data)
-                        msg_count += 1
-                        published_count += 1
+                while True:
+                    try:
+                        # Watch ALL symbols at once with 90s timeout
+                        tickers = await asyncio.wait_for(
+                            self.exchange.watch_tickers(self.symbols),
+                            timeout=90  # If no data for 90s, reconnect
+                        )
                         
-                        # Track per-symbol metrics
-                        if normalized_symbol not in self.messages_sent:
-                            self.messages_sent[normalized_symbol] = 0
-                        self.messages_sent[normalized_symbol] += 1
+                        # Reset reconnect counter on successful receive
+                        reconnect_count = 0
+                        
+                        print(f"✓ Received {len(tickers)} ticker updates")
+                        
+                        # Publish each ticker
+                        published_count = 0
+                        for symbol, ticker in tickers.items():
+                            # Normalize symbol: remove :USDT suffix (Futures format)
+                            normalized_symbol = symbol.split(':')[0]  # 'BTC/USDT:USDT' -> 'BTC/USDT'
+                            
+                            print(f"   {symbol} -> {normalized_symbol} ... match? {normalized_symbol in self.symbols}")
+                            
+                            if normalized_symbol in self.symbols:
+                                # Normalize data before publishing
+                                normalized_data = self._normalize_ticker(ticker)
+                                # Publish with NORMALIZED symbol name
+                                await self._publish(normalized_symbol, normalized_data)
+                                msg_count += 1
+                                published_count += 1
+                                
+                                # Track per-symbol metrics
+                                if normalized_symbol not in self.messages_sent:
+                                    self.messages_sent[normalized_symbol] = 0
+                                self.messages_sent[normalized_symbol] += 1
+                        
+                        print(f"   ✅ Published: {published_count}/{len(tickers)}\n")
+                        
+                        # Log stats every 10 messages
+                        if msg_count > 0 and msg_count % 10 == 0:
+                            print(f"\n📊 Published {msg_count} total messages")
+                            for symbol, count in self.messages_sent.items():
+                                print(f"   {symbol}: {count} msgs")
+                            print()
+                    
+                    except asyncio.TimeoutError:
+                        print(f"⚠️ No data for 90 seconds - reconnecting...")
+                        logger.warning("Feed handler timeout - reconnecting to Binance")
+                        raise  # Trigger reconnection
                 
-                print(f"   ✅ Published: {published_count}/{len(tickers)}\n")
+            except Exception as e:
+                reconnect_count += 1
+                print(f"❌ ERROR in ticker stream: {e}")
+                print(f"🔄 Reconnecting... (attempt {reconnect_count}/{max_reconnects})")
+                logger.error(f"Error in ticker stream: {e}", exc_info=True)
                 
-                # Log stats every 10 messages (no 100 para debugging)
-                if msg_count > 0 and msg_count % 10 == 0:
-                    print(f"\n📊 Published {msg_count} total messages")
-                    for symbol, count in self.messages_sent.items():
-                        print(f"   {symbol}: {count} msgs")
-                    print()
-
+                # Close and recreate exchange connection
+                try:
+                    await self.exchange.close()
+                except:
+                    pass
                 
-        except Exception as e:
-            print(f"❌ ERROR in ticker stream: {e}")
-            logger.error(f"Error in ticker stream: {e}", exc_info=True)
-        finally:
-            await self.close()
+                # Wait before reconnecting
+                await asyncio.sleep(5)
+                
+                # Recreate exchange
+                self.exchange = ccxt.binance({
+                    'apiKey': settings.BINANCE_API_KEY,
+                    'secret': settings.BINANCE_SECRET,
+                    'enableRateLimit': True,
+                    'options': {'defaultType': 'future'}
+                })
+                
+                print("✓ Exchange connection recreated\n")
+        
+        print(f"❌ Max reconnection attempts ({max_reconnects}) reached - stopping")
+        await self.close()
     
     def _normalize_ticker(self, ticker: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize CCXT ticker to internal format."""

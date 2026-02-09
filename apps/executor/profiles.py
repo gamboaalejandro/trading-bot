@@ -42,6 +42,14 @@ PROFILES: Dict[str, TradingProfile] = {
         max_risk_per_trade=0.03,  # 3%
         max_positions=5,
         description="Suitable for capital > $50k. Weighted by confidence scores."
+    ),
+    "spot_production": TradingProfile(
+        name="Spot Production",
+        combination_method="consensus",
+        min_confidence=0.70,  # High selectivity for Spot
+        max_risk_per_trade=0.02,  # 2% per trade (no leverage)
+        max_positions=2,  # Conservative max positions (swing trading)
+        description="SPOT Production: Swing trading with wide TP/SL, high confidence signals only. No leverage."
     )
 }
 

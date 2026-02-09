@@ -30,6 +30,7 @@ from apps.executor.strategies import (
     MeanReversionStrategy
 )
 from apps.executor.profiles import get_profile
+from apps.executor.pnl_logger import PnLLogger
 from config.safe_list import get_active_symbols, get_symbol_config
 
 logging.basicConfig(
@@ -99,11 +100,18 @@ class MultiSymbolEngine:
         )
         self.risk_manager = ProfessionalRiskManager(risk_config)
         
+        # P&L tracking
+        self.pnl_logger = PnLLogger()
+        logger.info("✓ P&L Logger initialized")
+        
         # State per symbol (dictionary-based)
         self.strategies: Dict[str, StrategyManager] = {}
         self.candles: Dict[str, pd.DataFrame] = {}
         self.latest_candles: Dict[str, pd.DataFrame] = {}
         self.last_candle_time: Dict[str, datetime] = {}
+        
+        # Position tracking (prevent duplicate trades)
+        self.open_positions: Dict[str, Dict] = {}  # {symbol: {'side': 'buy', 'entry_price': 71000, 'timestamp': ...}}
         
         # Initialize strategies for each symbol (Factory Pattern)
         self._initialize_strategies()
@@ -190,9 +198,21 @@ class MultiSymbolEngine:
         await self.connector.initialize()
         logger.info("Testnet connector initialized")
         
-        # Start main loop
+        # Start main loop and position monitoring in parallel
         self.running = True
-        await self._main_loop()
+        
+        # Create monitoring task
+        monitor_task = asyncio.create_task(self.monitor_open_positions())
+        
+        try:
+            await self._main_loop()
+        finally:
+            # Cancel monitoring when main loop stops
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
     
     async def _main_loop(self):
         """
@@ -204,18 +224,35 @@ class MultiSymbolEngine:
         """
         logger.info("\n🚀 Trading Engine Running - Event-driven mode\n")
         
+        last_message_time = asyncio.get_event_loop().time()
+        heartbeat_timeout = 60  # seconds without data = warning
+        
         try:
             while self.running:
-                # Receive message with topic
-                topic, msg = await self.zmq_socket.recv_multipart()
-                symbol = topic.decode('utf-8')
-                data = msgpack.unpackb(msg, raw=False)
+                try:
+                    # Receive message with timeout
+                    topic, msg = await asyncio.wait_for(
+                        self.zmq_socket.recv_multipart(),
+                        timeout=heartbeat_timeout
+                    )
+                    
+                    last_message_time = asyncio.get_event_loop().time()
+                    
+                    symbol = topic.decode('utf-8')
+                    data = msgpack.unpackb(msg, raw=False)
+                    
+                    # Route to symbol-specific handler
+                    if symbol in self.symbols:
+                        await self.on_tick(symbol, data)
+                    else:
+                        logger.debug(f"Received tick for non-tracked symbol: {symbol}")
                 
-                # Route to symbol-specific handler
-                if symbol in self.symbols:
-                    await self.on_tick(symbol, data)
-                else:
-                    logger.debug(f"Received tick for non-tracked symbol: {symbol}")
+                except asyncio.TimeoutError:
+                    # No data received for 60 seconds
+                    logger.warning(f"⚠️ No data received for {heartbeat_timeout}s - feed handler may be stuck")
+                    logger.warning("Checking if feed handler is still alive...")
+                    # Continue waiting (don't crash)
+                    continue
                     
         except KeyboardInterrupt:
             logger.info("Shutting down...")
@@ -308,23 +345,46 @@ class MultiSymbolEngine:
                 min_confidence=self.profile.min_confidence
             )
             
-            if signal and signal.is_actionable():
-                logger.info(
-                    f"🔔 {symbol} - Signal: {signal.signal_type.value.upper()} "
-                    f"(confidence: {signal.confidence:.2%})"
-                )
+            # ENHANCED DEBUG LOGGING
+            if signal:
+                # Get latest candle data for debug info
+                latest_close = candles['close'].iloc[-1]
                 
-                # Execute trade (with portfolio risk check inside)
-                await self._execute_trade(symbol, signal)
-            else:
-                # Log when NO signal (para debugging)
-                if signal:
-                    logger.debug(
-                        f"{symbol}: Signal below threshold "
+                logger.debug(f"{symbol} - Signal Generated:")
+                logger.debug(f"  Type: {signal.signal_type.value.upper()}")
+                logger.debug(f"  Confidence: {signal.confidence:.2%}")
+                logger.debug(f"  Price: ${latest_close:,.2f}")
+                logger.debug(f"  Min Required: {self.profile.min_confidence:.2%}")
+                
+                # Check if actionable
+                if signal.is_actionable():
+                    logger.info(
+                        f"🔔 {symbol} - Signal: {signal.signal_type.value.upper()} "
+                        f"(confidence: {signal.confidence:.2%})"
+                    )
+                    
+                    # Execute trade (with portfolio risk check inside)
+                    await self._execute_trade(symbol, signal)
+                else:
+                    # Signal exists but below threshold
+                    logger.info(
+                        f"⏸️ {symbol} - Signal FILTERED: {signal.signal_type.value.upper()} "
                         f"({signal.confidence:.2%} < {self.profile.min_confidence:.2%})"
                     )
-                else:
-                    logger.debug(f"{symbol}: No signal generated")
+            else:
+                # No signal at all - log periodically for awareness
+                # Log every 50th check to avoid spam
+                if not hasattr(self, '_no_signal_count'):
+                    self._no_signal_count = {}
+                
+                self._no_signal_count[symbol] = self._no_signal_count.get(symbol, 0) + 1
+                
+                if self._no_signal_count[symbol] % 50 == 0:
+                    latest_close = candles['close'].iloc[-1]
+                    logger.debug(
+                        f"{symbol}: No signal after {self._no_signal_count[symbol]} checks "
+                        f"(Price: ${latest_close:,.2f})"
+                    )
                 
         except Exception as e:
             logger.error(f"Error checking signal for {symbol}: {e}", exc_info=True)
@@ -340,6 +400,13 @@ class MultiSymbolEngine:
             signal: Trading signal
         """
         try:
+            # Check if we already have an open position for this symbol
+            if symbol in self.open_positions:
+                existing = self.open_positions[symbol]
+                logger.info(f"⏸️ {symbol} - Already have open {existing['side'].upper()} position @ ${existing['entry_price']:,.2f}")
+                logger.info(f"   Opened: {existing['timestamp']} | Current signal: {signal.signal_type.value.upper()}")
+                return  # Skip this signal
+            
             # Get current price
             ticker = await self.connector.get_ticker(symbol)
             if not ticker or 'last' not in ticker:
@@ -425,15 +492,52 @@ class MultiSymbolEngine:
                 logger.info(f"✅ {symbol} - Order placed successfully")
                 logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
                 
-                # Track position
-                self.account_manager.add_position({
-                    'symbol': symbol,
+                # Get TP/SL configuration from .env (Spot optimized)
+                tp_rr_ratio = float(getattr(settings, 'TP_RR_RATIO', 3.0))  # Default 3:1 for Spot
+                
+                # Calculate Take Profit/Stop Loss for SPOT (Wide TP/SL)
+                # SPOT Strategy: Swing trading with wide stops to capture full trends
+                distance_to_sl = abs(current_price - stop_loss)
+                
+                if signal.signal_type.value == 'buy':
+                    take_profit = current_price + (distance_to_sl * tp_rr_ratio)
+                else:  # sell
+                    take_profit = current_price - (distance_to_sl * tp_rr_ratio)
+                
+                # Calculate projected profit percentage
+                profit_pct = (distance_to_sl * tp_rr_ratio) / current_price * 100
+                risk_pct = distance_to_sl / current_price * 100
+                
+                logger.info(f"📊 SPOT Trade Setup (Swing Trading):")
+                logger.info(f"   TP Distance: ${distance_to_sl * tp_rr_ratio:.2f} (+{profit_pct:.2f}%)")
+                logger.info(f"   SL Distance: ${distance_to_sl:.2f} (-{risk_pct:.2f}%)")
+                logger.info(f"   Risk/Reward: 1:{tp_rr_ratio:.1f}")
+                
+                # Track position to prevent duplicate trades
+                self.open_positions[symbol] = {
                     'side': signal.signal_type.value,
                     'entry_price': current_price,
                     'quantity': quantity,
                     'stop_loss': stop_loss,
-                    'timestamp': datetime.now()
-                })
+                    'take_profit': take_profit,
+                    'order_id': order_result.get('id', 'N/A'),
+                    'timestamp': datetime.now().isoformat()
+                }
+                logger.info(f"📊 Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
+                logger.info(f"   TP: ${take_profit:,.2f} | SL: ${stop_loss:,.2f}")
+                
+                # Log entry to P&L tracker
+                self.pnl_logger.log_trade_entry(
+                    symbol=symbol,
+                    side=signal.signal_type.value,
+                    entry_price=current_price,
+                    quantity=quantity,
+                    order_id=order_result.get('id', 'N/A'),
+                    timestamp=datetime.now()
+                )
+                
+                # TODO: Implement position tracking in AccountManager when method exists
+                # self.account_manager.add_position(...)
             else:
                 logger.error(f"❌ {symbol} - Order failed")
             
@@ -441,6 +545,152 @@ class MultiSymbolEngine:
                 
         except Exception as e:
             logger.error(f"Error executing trade for {symbol}: {e}", exc_info=True)
+    
+    async def monitor_open_positions(self):
+        """
+        Continuously monitor open positions for Take Profit/Stop Loss.
+        
+        Checks every 2 seconds if positions should be closed.
+        """
+        logger.info("📡 Position monitoring started")
+        
+        try:
+            while self.running:
+                if not self.open_positions:
+                    await asyncio.sleep(2)
+                    continue
+                
+                for symbol in list(self.open_positions.keys()):
+                    try:
+                        position = self.open_positions[symbol]
+                        
+                        # Get current price
+                        ticker = await self.connector.get_ticker(symbol)
+                        if not ticker or 'last' not in ticker:
+                            continue
+                        
+                        current_price = ticker['last']
+                        take_profit = position['take_profit']
+                        stop_loss = position['stop_loss']
+                        side = position['side']
+                        
+                        # Check Take Profit
+                        if side == 'buy' and current_price >= take_profit:
+                            logger.info(f"🎯 {symbol} - TAKE PROFIT HIT!")
+                            await self.close_position(symbol, 'take_profit', current_price)
+                        elif side == 'sell' and current_price <= take_profit:
+                            logger.info(f"🎯 {symbol} - TAKE PROFIT HIT!")
+                            await self.close_position(symbol, 'take_profit', current_price)
+                        
+                        # Check Stop Loss
+                        elif side == 'buy' and current_price <= stop_loss:
+                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
+                            await self.close_position(symbol, 'stop_loss', current_price)
+                        elif side == 'sell' and current_price >= stop_loss:
+                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
+                            await self.close_position(symbol, 'stop_loss', current_price)
+                    
+                    except Exception as e:
+                        logger.error(f"Error monitoring {symbol}: {e}")
+                
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+        except asyncio.CancelledError:
+            logger.info("📡 Position monitoring stopped")
+    
+    async def close_position(self, symbol: str, reason: str, current_price: float):
+        """
+        Close an open position.
+        
+        Args:
+            symbol: Trading pair
+            reason: 'take_profit' or 'stop_loss'
+            current_price: Current market price
+        """
+        try:
+            position = self.open_positions.get(symbol)
+            if not position:
+                logger.warning(f"⚠️ {symbol} - No position found to close")
+                return
+            
+            # Determine opposite side
+            close_side = 'sell' if position['side'] == 'buy' else 'buy'
+            
+            if self.dry_run:
+                # Simulate close in dry run
+                entry = position['entry_price']
+                quantity = position['quantity']
+                
+                if position['side'] == 'buy':
+                    pnl = (current_price - entry) * quantity
+                else:
+                    pnl = (entry - current_price) * quantity
+                
+                logger.info(f"{'='*60}")
+                logger.info(f"🔵 DRY RUN - POSITION CLOSED: {symbol}")
+                logger.info(f"{'='*60}")
+                logger.info(f"Reason: {reason.upper()}")
+                logger.info(f"Entry Price: ${entry:,.2f}")
+                logger.info(f"Exit Price: ${current_price:,.2f}")
+                logger.info(f"Quantity: {quantity:.6f}")
+                logger.info(f"Simulated PNL: ${pnl:,.2f}")
+                logger.info(f"{'='*60}\n")
+                
+                del self.open_positions[symbol]
+                return
+            
+            # Execute real closing order
+            order_result = await self.connector.place_order(
+                symbol=symbol,
+                side=close_side,
+                quantity=position['quantity'],
+                price=current_price,
+                order_type='market'
+            )
+            
+            if order_result:
+                entry = position['entry_price']
+                quantity = position['quantity']
+                
+                if position['side'] == 'buy':
+                    pnl = (current_price - entry) * quantity
+                else:
+                    pnl = (entry - current_price) * quantity
+                
+                logger.info(f"{'='*60}")
+                logger.info(f"POSITION CLOSED: {symbol}")
+                logger.info(f"{'='*60}")
+                logger.info(f"Reason: {reason.upper()}")
+                logger.info(f"Entry Price: ${entry:,.2f}")
+                logger.info(f"Exit Price: ${current_price:,.2f}")
+                logger.info(f"Quantity: {quantity:.6f}")
+                
+                # Calculate ROI
+                roi = (pnl / (entry * quantity)) * 100
+                
+                logger.info(f"Realized PNL: ${pnl:,.2f} ({'+' if pnl > 0 else ''}{roi:.2f}%)")
+                logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
+                logger.info(f"{'='*60}\n")
+                
+                # Log exit to P&L tracker
+                self.pnl_logger.log_trade_exit(
+                    symbol=symbol,
+                    exit_price=current_price,
+                    pnl=pnl,
+                    roi=roi,
+                    reason=reason,
+                    timestamp=datetime.now(),
+                    entry_price=entry,
+                    quantity=quantity
+                )
+                
+                # Remove from tracking
+                del self.open_positions[symbol]
+            else:
+                logger.error(f"❌ {symbol} - Failed to close position")
+        
+        except Exception as e:
+            logger.error(f"Error closing position for {symbol}: {e}", exc_info=True)
     
     async def stop(self):
         """Stop the engine and cleanup resources."""
