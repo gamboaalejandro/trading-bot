@@ -201,7 +201,7 @@ if __name__ == "__main__":
     
     for symbol in active:
         config = get_symbol_config(symbol)
-        print(f"📊 {symbol}")
+        print(f" {symbol}")
         print(f"   Tier: {config['tier']}")
         print(f"   Strategy: {config['strategy']}")
         print(f"   Max Position: ${config['max_position_size_usd']}")

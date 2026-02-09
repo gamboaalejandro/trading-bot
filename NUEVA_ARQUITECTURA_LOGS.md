@@ -1,12 +1,12 @@
-# 🎯 NUEVA ARQUITECTURA DE LOGGING - Instrucciones
+#  NUEVA ARQUITECTURA DE LOGGING - Instrucciones
 
-## ✅ Sistema Actualizado
+##  Sistema Actualizado
 
 Ahora el bot escribe logs a archivos permanentes que puedes ver en cualquier momento.
 
 ---
 
-## 📋 Cómo Usar
+##  Cómo Usar
 
 ### **PASO 1: Iniciar el Bot**
 
@@ -26,7 +26,7 @@ Esto mostrará:
 
 ---
 
-## 🔍 Qué Verás
+##  Qué Verás
 
 ### **Feed Handler:**
 ```
@@ -44,12 +44,12 @@ Esto mostrará:
 2026-02-06 08:00:10 - INFO - Trading Profile: Conservative
 2026-02-06 08:00:15 - INFO - BTC/USDT: Updated 100 candles, last at 2026-02-06 08:00:00
 2026-02-06 08:00:20 - INFO - ETH/USDT: Updated 100 candles, last at 2026-02-06 08:00:00
-2026-02-06 08:00:25 - INFO - 📊 Processed 100 ticks total
+2026-02-06 08:00:25 - INFO -  Processed 100 ticks total
 ```
 
 ---
 
-## ⚡ Opción Alternativa: Todo Visible en Terminal
+##  Opción Alternativa: Todo Visible en Terminal
 
 Si prefieres ver TODO directamente sin archivos:
 
@@ -67,7 +67,7 @@ python3 -m apps.executor.multi_symbol_engine
 
 ---
 
-## 📂 Archivos de Log
+##  Archivos de Log
 
 Los logs se guardan en:
 - `logs/feed_handler.log`
@@ -87,7 +87,7 @@ grep "Signal:" logs/trading_engine.log
 
 ---
 
-## 🐛 Si SIGUE sin funcionar
+##  Si SIGUE sin funcionar
 
 Si después de esto **NO ves logs**, entonces hay un problema fundamental:
 

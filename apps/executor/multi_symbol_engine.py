@@ -1,4 +1,4 @@
-"""
+﻿"""
 Multi-Symbol Trading Engine
 Main orchestrator for portfolio-based automated trading
 
@@ -11,6 +11,12 @@ Manages trading across multiple assets simultaneously with:
 This is the CORE of the multi-asset trading system.
 """
 import asyncio
+import sys
+
+# FIX for Windows: ZMQ requires SelectorEventLoop on Windows
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import zmq
 import zmq.asyncio
 import msgpack
@@ -102,7 +108,7 @@ class MultiSymbolEngine:
         
         # P&L tracking
         self.pnl_logger = PnLLogger()
-        logger.info("✓ P&L Logger initialized")
+        logger.info("[OK] P&L Logger initialized")
         
         # State per symbol (dictionary-based)
         self.strategies: Dict[str, StrategyManager] = {}
@@ -138,7 +144,7 @@ class MultiSymbolEngine:
             config = get_symbol_config(symbol)
             
             if not config:
-                logger.warning(f"⚠️ No config found for {symbol}, skipping")
+                logger.warning(f"️ No config found for {symbol}, skipping")
                 continue
             
             # Create strategy manager for this symbol
@@ -159,7 +165,7 @@ class MultiSymbolEngine:
                     slow_ma_period=params.get('ma_slow', 21)
                 )
                 strategy_manager.register_strategy(momentum)
-                logger.info(f"✓ {symbol}: Momentum (RSI={params.get('rsi_period', 9)})")
+                logger.info(f"[OK] {symbol}: Momentum (RSI={params.get('rsi_period', 9)})")
                 
             elif strategy_type == 'mean_reversion':
                 # Create Mean Reversion strategy with symbol-specific params
@@ -170,7 +176,7 @@ class MultiSymbolEngine:
                     bb_std=params.get('bb_std', 2.0)
                 )
                 strategy_manager.register_strategy(mean_rev)
-                logger.info(f"✓ {symbol}: MeanReversion (BB_std={params.get('bb_std', 2.0)})")
+                logger.info(f"[OK] {symbol}: MeanReversion (BB_std={params.get('bb_std', 2.0)})")
             
             # Store strategy manager for this symbol
             self.strategies[symbol] = strategy_manager
@@ -222,7 +228,7 @@ class MultiSymbolEngine:
         - ZMQ publishes: [topic: 'BTC/USDT', data: {...}]
         - Engine receives and routes to on_tick(symbol, data)
         """
-        logger.info("\n🚀 Trading Engine Running - Event-driven mode\n")
+        logger.info("\n[RUNNING] Trading Engine - Event-driven mode\n")
         
         last_message_time = asyncio.get_event_loop().time()
         heartbeat_timeout = 60  # seconds without data = warning
@@ -249,7 +255,7 @@ class MultiSymbolEngine:
                 
                 except asyncio.TimeoutError:
                     # No data received for 60 seconds
-                    logger.warning(f"⚠️ No data received for {heartbeat_timeout}s - feed handler may be stuck")
+                    logger.warning(f"️ No data received for {heartbeat_timeout}s - feed handler may be stuck")
                     logger.warning("Checking if feed handler is still alive...")
                     # Continue waiting (don't crash)
                     continue
@@ -282,7 +288,7 @@ class MultiSymbolEngine:
             
             # Log cada 100 ticks para confirmar actividad
             if self.tick_count % 100 == 0:
-                logger.info(f"📊 Processed {self.tick_count} ticks total")
+                logger.info(f"[STATS] Processed {self.tick_count} ticks total")
             
             # Update candles for this symbol
             await self._update_candles(symbol)
@@ -359,7 +365,7 @@ class MultiSymbolEngine:
                 # Check if actionable
                 if signal.is_actionable():
                     logger.info(
-                        f"🔔 {symbol} - Signal: {signal.signal_type.value.upper()} "
+                        f"[SIGNAL] {symbol} - Signal: {signal.signal_type.value.upper()} "
                         f"(confidence: {signal.confidence:.2%})"
                     )
                     
@@ -368,7 +374,7 @@ class MultiSymbolEngine:
                 else:
                     # Signal exists but below threshold
                     logger.info(
-                        f"⏸️ {symbol} - Signal FILTERED: {signal.signal_type.value.upper()} "
+                        f"[SKIP] {symbol} - Signal FILTERED: {signal.signal_type.value.upper()} "
                         f"({signal.confidence:.2%} < {self.profile.min_confidence:.2%})"
                     )
             else:
@@ -403,7 +409,7 @@ class MultiSymbolEngine:
             # Check if we already have an open position for this symbol
             if symbol in self.open_positions:
                 existing = self.open_positions[symbol]
-                logger.info(f"⏸️ {symbol} - Already have open {existing['side'].upper()} position @ ${existing['entry_price']:,.2f}")
+                logger.info(f"[SKIP] {symbol} - Already have open {existing['side'].upper()} position @ ${existing['entry_price']:,.2f}")
                 logger.info(f"   Opened: {existing['timestamp']} | Current signal: {signal.signal_type.value.upper()}")
                 return  # Skip this signal
             
@@ -448,7 +454,7 @@ class MultiSymbolEngine:
             )
             
             if quantity <= 0:
-                logger.warning(f"❌ {symbol} - Position size too small: {quantity}")
+                logger.warning(f" {symbol} - Position size too small: {quantity}")
                 return
             
             # Get safe_list config for position limits
@@ -475,7 +481,7 @@ class MultiSymbolEngine:
             logger.info(f"Account Balance: ${balance:,.2f}")
             
             if self.dry_run:
-                logger.info(f"🔵 DRY RUN MODE - Trade NOT executed")
+                logger.info(f" DRY RUN MODE - Trade NOT executed")
                 logger.info(f"{'='*60}\n")
                 return
             
@@ -489,7 +495,7 @@ class MultiSymbolEngine:
             )
             
             if order_result:
-                logger.info(f"✅ {symbol} - Order placed successfully")
+                logger.info(f" {symbol} - Order placed successfully")
                 logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
                 
                 # Get TP/SL configuration from .env (Spot optimized)
@@ -508,7 +514,7 @@ class MultiSymbolEngine:
                 profit_pct = (distance_to_sl * tp_rr_ratio) / current_price * 100
                 risk_pct = distance_to_sl / current_price * 100
                 
-                logger.info(f"📊 SPOT Trade Setup (Swing Trading):")
+                logger.info(f" SPOT Trade Setup (Swing Trading):")
                 logger.info(f"   TP Distance: ${distance_to_sl * tp_rr_ratio:.2f} (+{profit_pct:.2f}%)")
                 logger.info(f"   SL Distance: ${distance_to_sl:.2f} (-{risk_pct:.2f}%)")
                 logger.info(f"   Risk/Reward: 1:{tp_rr_ratio:.1f}")
@@ -523,7 +529,7 @@ class MultiSymbolEngine:
                     'order_id': order_result.get('id', 'N/A'),
                     'timestamp': datetime.now().isoformat()
                 }
-                logger.info(f"📊 Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
+                logger.info(f" Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
                 logger.info(f"   TP: ${take_profit:,.2f} | SL: ${stop_loss:,.2f}")
                 
                 # Log entry to P&L tracker
@@ -539,7 +545,7 @@ class MultiSymbolEngine:
                 # TODO: Implement position tracking in AccountManager when method exists
                 # self.account_manager.add_position(...)
             else:
-                logger.error(f"❌ {symbol} - Order failed")
+                logger.error(f" {symbol} - Order failed")
             
             logger.info(f"{'='*60}\n")
                 
@@ -552,7 +558,7 @@ class MultiSymbolEngine:
         
         Checks every 2 seconds if positions should be closed.
         """
-        logger.info("📡 Position monitoring started")
+        logger.info("[MONITOR] Position monitoring started")
         
         try:
             while self.running:
@@ -576,18 +582,18 @@ class MultiSymbolEngine:
                         
                         # Check Take Profit
                         if side == 'buy' and current_price >= take_profit:
-                            logger.info(f"🎯 {symbol} - TAKE PROFIT HIT!")
+                            logger.info(f" {symbol} - TAKE PROFIT HIT!")
                             await self.close_position(symbol, 'take_profit', current_price)
                         elif side == 'sell' and current_price <= take_profit:
-                            logger.info(f"🎯 {symbol} - TAKE PROFIT HIT!")
+                            logger.info(f" {symbol} - TAKE PROFIT HIT!")
                             await self.close_position(symbol, 'take_profit', current_price)
                         
                         # Check Stop Loss
                         elif side == 'buy' and current_price <= stop_loss:
-                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
+                            logger.info(f" {symbol} - STOP LOSS HIT!")
                             await self.close_position(symbol, 'stop_loss', current_price)
                         elif side == 'sell' and current_price >= stop_loss:
-                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
+                            logger.info(f" {symbol} - STOP LOSS HIT!")
                             await self.close_position(symbol, 'stop_loss', current_price)
                     
                     except Exception as e:
@@ -596,7 +602,7 @@ class MultiSymbolEngine:
                 await asyncio.sleep(2)  # Check every 2 seconds
                 
         except asyncio.CancelledError:
-            logger.info("📡 Position monitoring stopped")
+            logger.info("[MONITOR] Position monitoring stopped")
     
     async def close_position(self, symbol: str, reason: str, current_price: float):
         """
@@ -610,7 +616,7 @@ class MultiSymbolEngine:
         try:
             position = self.open_positions.get(symbol)
             if not position:
-                logger.warning(f"⚠️ {symbol} - No position found to close")
+                logger.warning(f"️ {symbol} - No position found to close")
                 return
             
             # Determine opposite side
@@ -627,7 +633,7 @@ class MultiSymbolEngine:
                     pnl = (entry - current_price) * quantity
                 
                 logger.info(f"{'='*60}")
-                logger.info(f"🔵 DRY RUN - POSITION CLOSED: {symbol}")
+                logger.info(f" DRY RUN - POSITION CLOSED: {symbol}")
                 logger.info(f"{'='*60}")
                 logger.info(f"Reason: {reason.upper()}")
                 logger.info(f"Entry Price: ${entry:,.2f}")
@@ -687,7 +693,7 @@ class MultiSymbolEngine:
                 # Remove from tracking
                 del self.open_positions[symbol]
             else:
-                logger.error(f"❌ {symbol} - Failed to close position")
+                logger.error(f" {symbol} - Failed to close position")
         
         except Exception as e:
             logger.error(f"Error closing position for {symbol}: {e}", exc_info=True)

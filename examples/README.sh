@@ -3,7 +3,7 @@
 # Script para dar permisos de ejecución a todos los scripts de ejemplo
 chmod +x examples/*.py
 
-echo "✅ Scripts de ejemplo listos para usar:"
+echo " Scripts de ejemplo listos para usar:"
 echo ""
 echo "1. Ver estado de cuenta:"
 echo "   python3 examples/check_status.py"

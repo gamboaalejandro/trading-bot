@@ -1,32 +1,31 @@
 """
-Testnet Connector - Binance Futures Testnet Interface
+Testnet Connector - Binance Demo Mode Interface
+NOW USING NATIVE BINANCE API (NO CCXT)
+
 Provides safe testing environment for trading strategies.
 
-NOTE: Binance Futures Testnet is no longer officially supported by CCXT,
-so we use manual URL configuration to connect to testnet.binancefuture.com
+NOTE: Uses Binance Demo Mode (demo-api.binance.com) which provides
+realistic market data with virtual funds.
 """
-import ccxt.pro as ccxt
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+
+# CHANGED: Import native Binance client instead of ccxt
+from core.binance_client import BinanceClient
 from core.config import settings
-from ccxt.base.errors import RequestTimeout, NetworkError
 
 logger = logging.getLogger(__name__)
-
-# Configuración para reintentos
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # segundos
 
 
 class TestnetConnector:
     """
-    Connector for Binance Futures Testnet.
+    Connector for Binance Demo Mode using Native API.
     
     Provides:
     - Account balance tracking
-    - Position management
+    - Position management (spot trading)
     - Order execution (market, limit)
     - Historical data fetching
     - P&L calculation
@@ -34,61 +33,40 @@ class TestnetConnector:
     
     def __init__(self, use_testnet: bool = True):
         """
-        Initialize testnet connector.
+        Initialize Demo Mode connector.
         
         Args:
-            use_testnet: If True, use testnet. If False, use production (DANGEROUS!)
+            use_testnet: If True, use Demo Mode. If False, use production (DANGEROUS!)
         """
         self.use_testnet = use_testnet
         
         if use_testnet:
-            api_key = getattr(settings, 'BINANCE_TESTNET_API_KEY', settings.BINANCE_API_KEY)
-            secret = getattr(settings, 'BINANCE_TESTNET_SECRET', settings.BINANCE_SECRET)
-            base_url = 'https://demo-api.binance.com/api'  # Spot Demo Mode
-            logger.info("🧪 Initializing SPOT DEMO MODE connector")
+            api_key = getattr(settings, 'BINANCE_TESTNET_API_KEY', settings.BINANCE_TESTNET_API_KEY)
+            secret = getattr(settings, 'BINANCE_TESTNET_SECRET', settings.BINANCE_TESTNET_SECRET)
+            logger.info("Initializing SPOT DEMO MODE connector")
         else:
             api_key = settings.BINANCE_API_KEY
             secret = settings.BINANCE_SECRET
-            base_url = 'https://api.binance.com'
-            logger.warning("⚠️ Initializing PRODUCTION connector - REAL MONEY AT RISK!")
+            logger.warning("Initializing PRODUCTION connector - REAL MONEY AT RISK!")
         
-        # Configure options for SPOT trading
-        options = {
-            'defaultType': 'spot',  # SPOT mode (Testnet or Production)
-            'adjustForTimeDifference': True,
-        }
+        logger.info(f"Using API Key: {api_key[:10]}...")  # Only show first 10 chars for security
         
-        # Configure exchange with proper URLs
-        exchange_config = {
-            'apiKey': api_key,
-            'secret': secret,
-            'enableRateLimit': True,
-            'options': options,
-            'timeout': 30000,
-            'rateLimit': 500,
-        }
-        
-        # Add testnet URLs if using testnet
-        if use_testnet:
-            # Configure Spot Demo Mode URLs
-            # Demo Mode uses REAL market prices with virtual funds
-
-            logger.info("✅ Spot Demo Mode URLs configured: demo-api.binance.com")
-            logger.info("📊 Using REAL market prices with virtual funds")
-        
-        # Create exchange instance
-        self.exchange = ccxt.binance(exchange_config)
-        
-        self.exchange.set_sandbox_mode(True)
-
-        # Important: Do NOT use enable_demo_trading() for Spot Testnet
-        # It causes CCXT to look for Futures testnet endpoints which don't exist for Spot
-        if use_testnet:
-            logger.info("🎯 Strategy: Swing trading with wide TP/SL (3:1 R/R)")
-        else:
-            logger.warning("💰 LIVE TRADING MODE - Using real funds")
+        # CHANGED: Use native Binance client
+        self.client = BinanceClient(
+            api_key=api_key,
+            api_secret=secret,
+            demo_mode=use_testnet,
+            timeout=30
+        )
         
         self._initialized = False
+        
+        if use_testnet:
+            logger.info(" Spot Demo Mode configured: demo-api.binance.com")
+            logger.info(" Using REAL market prices with virtual funds")
+            logger.info(" Strategy: Swing trading with wide TP/SL (3:1 R/R)")
+        else:
+            logger.warning(" LIVE TRADING MODE - Using real funds")
     
     async def initialize(self):
         """Initialize connection and test it."""
@@ -98,10 +76,12 @@ class TestnetConnector:
         try:
             logger.info("Testing connection...")
             
+            # Sync time with server
+            self.client.sync_time()
+            
             # Test connection by fetching balance
-            balance = await self.exchange.fetch_balance()
-            usdt_balance = balance.get('USDT', {}).get('free', 0)
-            logger.info(f"✓ Connected successfully. USDT Balance: {usdt_balance:.2f}")
+            usdt_balance = self.client.get_balance('USDT')
+            logger.info(f"[OK] Connected successfully. USDT Balance: {usdt_balance:.2f}")
             
             self._initialized = True
             
@@ -119,33 +99,52 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
-        balance = await self.exchange.fetch_balance()
-        return balance
+        # CHANGED: Use native client
+        account = self.client.get_account()
+        
+        # Convert to ccxt-like format for compatibility
+        balances = {}
+        for balance in account.get('balances', []):
+            asset = balance['asset']
+            balances[asset] = {
+                'free': float(balance['free']),
+                'used': float(balance['locked']),
+                'total': float(balance['free']) + float(balance['locked'])
+            }
+        
+        return balances
     
     async def get_usdt_balance(self) -> float:
         """Get available USDT balance."""
-        balance = await self.get_balance()
-        return balance.get('USDT', {}).get('free', 0.0)
+        if not self._initialized:
+            await self.initialize()
+        
+        # CHANGED: Use native client
+        return self.client.get_balance('USDT')
     
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get open positions.
         
+        NOTE: For SPOT trading, this returns open orders instead of positions.
+        Futures positions don't exist in spot mode.
+        
         Args:
-            symbol: Filter by symbol (e.g., 'BTC/USDT'). If None, get all positions.
+            symbol: Filter by symbol (e.g., 'BTC/USDT'). If None, get all.
             
         Returns:
-            List of position dictionaries
+            List of open orders
         """
         if not self._initialized:
             await self.initialize()
         
-        positions = await self.exchange.fetch_positions(symbols=[symbol] if symbol else None)
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '') if symbol else None
         
-        # Filter out zero positions
-        open_positions = [p for p in positions if float(p.get('contracts', 0)) != 0]
+        # CHANGED: Use native client
+        open_orders = self.client.get_open_orders(binance_symbol)
         
-        return open_positions
+        return open_orders
     
     async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -165,13 +164,13 @@ class TestnetConnector:
         reduce_only: bool = False
     ) -> Dict[str, Any]:
         """
-        Create market order with retry logic.
+        Create market order.
         
         Args:
             symbol: Trading pair (e.g., 'BTC/USDT')
             side: 'buy' or 'sell'
             amount: Quantity in base currency
-            reduce_only: If True, only reduce existing position
+            reduce_only: Ignored for spot trading
             
         Returns:
             Order information
@@ -179,41 +178,24 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
-        params = {}
-        if reduce_only:
-            params['reduceOnly'] = True
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
         
-        logger.info(f"Creating MARKET {side.upper()} order: {amount} {symbol}")
+        # Round quantity to proper precision to avoid "too much precision" errors
+        rounded_amount = self.client.round_quantity(binance_symbol, amount)
         
-        # Retry logic para manejar timeouts del testnet
-        for attempt in range(MAX_RETRIES):
-            try:
-                order = await self.exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side=side,
-                    amount=amount,
-                    params=params
-                )
-                
-                logger.info(f"✓ Order created: {order.get('id')} | Status: {order.get('status')}")
-                return order
-                
-            except (RequestTimeout, NetworkError) as e:
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = RETRY_DELAY * (2 ** attempt)  # Backoff exponencial
-                    logger.warning(
-                        f"⚠️ Timeout/Network error (attempt {attempt + 1}/{MAX_RETRIES}). "
-                        f"Retrying in {wait_time}s..."
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"❌ Failed after {MAX_RETRIES} attempts")
-                    raise
-            except Exception as e:
-                # Otros errores no se reintenta
-                logger.error(f"❌ Order creation failed: {e}")
-                raise
+        logger.info(f"Creating MARKET {side.upper()} order: {rounded_amount} {symbol}")
+        
+        # CHANGED: Use native client
+        order = self.client.create_order(
+            symbol=binance_symbol,
+            side=side.upper(),
+            order_type='MARKET',
+            quantity=rounded_amount
+        )
+        
+        logger.info(f"[OK] Order created: {order.get('orderId')} | Status: {order.get('status')}")
+        return order
     
     async def create_limit_order(
         self,
@@ -231,7 +213,7 @@ class TestnetConnector:
             side: 'buy' or 'sell'
             amount: Quantity
             price: Limit price
-            reduce_only: If True, only reduce existing position
+            reduce_only: Ignored for spot trading
             
         Returns:
             Order information
@@ -239,25 +221,25 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
-        params = {}
-        if reduce_only:
-            params['reduceOnly'] = True
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
         
         logger.info(
             f"Creating LIMIT {side.upper()} order: "
             f"{amount} {symbol} @ ${price:.2f}"
         )
         
-        order = await self.exchange.create_order(
-            symbol=symbol,
-            type='limit',
-            side=side,
-            amount=amount,
+        # CHANGED: Use native client
+        order = self.client.create_order(
+            symbol=binance_symbol,
+            side=side.upper(),
+            order_type='LIMIT',
+            quantity=amount,
             price=price,
-            params=params
+            time_in_force='GTC'
         )
         
-        logger.info(f"✓ Order created: {order.get('id')} | Status: {order.get('status')}")
+        logger.info(f"[OK] Order created: {order.get('orderId')} | Status: {order.get('status')}")
         
         return order
     
@@ -283,23 +265,24 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
+        
         logger.info(
             f"Creating STOP LOSS {side.upper()} order: "
             f"{amount} {symbol} @ ${stop_price:.2f}"
         )
         
-        order = await self.exchange.create_order(
-            symbol=symbol,
-            type='stop_market',
-            side=side,
-            amount=amount,
-            params={
-                'stopPrice': stop_price,
-                'reduceOnly': True
-            }
+        # CHANGED: Use native client  
+        order = self.client.create_order(
+            symbol=binance_symbol,
+            side=side.upper(),
+            order_type='STOP_LOSS',
+            quantity=amount,
+            stop_price=stop_price
         )
         
-        logger.info(f"✓ Stop loss created: {order.get('id')}")
+        logger.info(f"[OK] Stop loss created: {order.get('orderId')}")
         
         return order
     
@@ -308,9 +291,14 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
+        
         logger.info(f"Cancelling order {order_id} for {symbol}")
-        result = await self.exchange.cancel_order(order_id, symbol)
-        logger.info(f"✓ Order cancelled: {order_id}")
+        
+        # CHANGED: Use native client
+        result = self.client.cancel_order(binance_symbol, int(order_id))
+        logger.info(f"[OK] Order cancelled: {order_id}")
         
         return result
     
@@ -319,9 +307,14 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
+        
         logger.info(f"Cancelling all orders for {symbol}")
-        result = await self.exchange.cancel_all_orders(symbol)
-        logger.info(f"✓ Cancelled {len(result)} orders")
+        
+        # CHANGED: Use native client
+        result = self.client.cancel_all_orders(binance_symbol)
+        logger.info(f"[OK] Cancelled {len(result)} orders")
         
         return result
     
@@ -329,38 +322,19 @@ class TestnetConnector:
         """
         Close an open position with market order.
         
+        NOTE: For SPOT trading, this cancels all open orders.
+        True positions don't exist in spot mode.
+        
         Args:
             symbol: Trading pair
             
         Returns:
-            Order information or None if no position
+            Cancellation result or None
         """
-        position = await self.get_position(symbol)
+        logger.info(f"Closing position (cancelling orders) for {symbol}")
         
-        if not position:
-            logger.info(f"No open position for {symbol}")
-            return None
-        
-        contracts = float(position.get('contracts', 0))
-        side_str = position.get('side', 'long')
-        
-        if contracts == 0:
-            logger.info(f"Position size is 0 for {symbol}")
-            return None
-        
-        # Determine closing side (opposite of position side)
-        close_side = 'sell' if side_str == 'long' else 'buy'
-        
-        logger.info(f"Closing {side_str.upper()} position: {contracts} {symbol}")
-        
-        order = await self.create_market_order(
-            symbol=symbol,
-            side=close_side,
-            amount=abs(contracts),
-            reduce_only=True
-        )
-        
-        return order
+        result = await self.cancel_all_orders(symbol)
+        return result if result else None
     
     async def fetch_ohlcv(
         self,
@@ -372,7 +346,7 @@ class TestnetConnector:
         Fetch OHLCV candlestick data.
         
         Args:
-            symbol: Trading pair
+            symbol: Trading pair (e.g., 'BTC/USDT')
             timeframe: Candle timeframe (1m, 5m, 15m, 1h, etc.)
             limit: Number of candles to fetch
             
@@ -382,9 +356,20 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
-        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
         
-        return ohlcv
+        # CHANGED: Use native client
+        klines = self.client.get_klines(
+            symbol=binance_symbol,
+            interval=timeframe,
+            limit=limit
+        )
+        
+        # Binance klines format: [time, open, high, low, close, volume, close_time, ...]
+        # We only need first 6 values to match ccxt format
+        return [[k[0], float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] 
+                for k in klines]
     
     async def place_order(
         self,
@@ -407,9 +392,9 @@ class TestnetConnector:
         Returns:
             Order information
         """
-        if order_type == 'market':
+        if order_type.lower() == 'market':
             return await self.create_market_order(symbol, side, quantity)
-        elif order_type == 'limit' and price:
+        elif order_type.lower() == 'limit' and price:
             return await self.create_limit_order(symbol, side, quantity, price)
         else:
             raise ValueError(f"Invalid order_type: {order_type}")
@@ -419,18 +404,33 @@ class TestnetConnector:
         if not self._initialized:
             await self.initialize()
         
-        ticker = await self.exchange.fetch_ticker(symbol)
-        return ticker
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        binance_symbol = symbol.replace('/', '')
+        
+        # CHANGED: Use native client
+        ticker = self.client.get_ticker_24hr(binance_symbol)
+        
+        # Convert to ccxt-like format
+        return {
+            'symbol': symbol,
+            'last': float(ticker['lastPrice']),
+            'bid': float(ticker.get('bidPrice', 0)),
+            'ask': float(ticker.get('askPrice', 0)),
+            'high': float(ticker['highPrice']),
+            'low': float(ticker['lowPrice']),
+            'volume': float(ticker['volume']),
+            'timestamp': ticker['closeTime']
+        }
     
     async def close(self):
         """Close exchange connection."""
-        await self.exchange.close()
+        self.client.close()
         logger.info("Exchange connection closed")
 
 
 # Convenience function for quick testing
 async def test_connection():
-    """Test testnet connection."""
+    """Test Demo Mode connection."""
     connector = TestnetConnector(use_testnet=True)
     
     try:
@@ -438,20 +438,21 @@ async def test_connection():
         
         # Get balance
         balance = await connector.get_usdt_balance()
-        print(f"✓ USDT Balance: {balance:.2f}")
+        print(f"[OK] USDT Balance: {balance:.2f}")
         
         # Get ticker
         ticker = await connector.get_ticker('BTC/USDT')
-        print(f"✓ BTC/USDT Price: ${ticker.get('last', 0):.2f}")
+        print(f"[OK] BTC/USDT Price: ${ticker.get('last', 0):,.2f}")
         
-        # Get positions
-        positions = await connector.get_positions()
-        print(f"✓ Open positions: {len(positions)}")
+        # Get klines
+        klines = await connector.fetch_ohlcv('BTC/USDT', '1m', 5)
+        print(f"[OK] Fetched {len(klines)} klines")
+        print(f"  Latest candle: O:{klines[-1][1]} H:{klines[-1][2]} L:{klines[-1][3]} C:{klines[-1][4]}")
         
-        print("\n✅ All tests passed!")
+        print("\n All tests passed!")
         
     except Exception as e:
-        print(f"❌ Test failed: {e}")
+        print(f" Test failed: {e}")
         import traceback
         traceback.print_exc()
         raise

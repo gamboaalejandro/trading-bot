@@ -1,6 +1,6 @@
-# 📈 Guía Completa de Estrategias de Trading
+#  Guía Completa de Estrategias de Trading
 
-## 🎯 Resumen Ejecutivo
+##  Resumen Ejecutivo
 
 Tu bot actualmente usa **2 estrategias complementarias** que funcionan en diferentes condiciones de mercado:
 
@@ -13,7 +13,7 @@ Tu bot actualmente usa **2 estrategias complementarias** que funcionan en difere
 
 ---
 
-## 📊 Estrategias Actuales
+##  Estrategias Actuales
 
 ### 1. **Momentum Strategy** (Seguimiento de Tendencia)
 
@@ -22,11 +22,11 @@ Detecta cuando el precio tiene **inercia direccional** (subida o bajada) y opera
 
 #### Indicadores Usados:
 ```
-📍 RSI (14 períodos): Mide la fuerza del movimiento
+ RSI (14 períodos): Mide la fuerza del movimiento
    - RSI > 50 = Momentum alcista
    - RSI < 50 = Momentum bajista
 
-📍 EMA Crossover (10 y 30 períodos):
+ EMA Crossover (10 y 30 períodos):
    - EMA rápida cruza arriba de lenta = COMPRA
    - EMA rápida cruza abajo de lenta = VENDE
 ```
@@ -34,9 +34,9 @@ Detecta cuando el precio tiene **inercia direccional** (subida o bajada) y opera
 #### Señal de COMPRA:
 ```python
 BUY si:
-  ✓ EMA(10) cruza ARRIBA de EMA(30)  # Golden cross
-  ✓ RSI > 50                          # Momentum positivo
-  ✓ Precio subiendo consistentemente
+   EMA(10) cruza ARRIBA de EMA(30)  # Golden cross
+   RSI > 50                          # Momentum positivo
+   Precio subiendo consistentemente
   
 Ejemplo:
   Precio: $70,000 → $71,000 → $72,000
@@ -58,10 +58,10 @@ Ejemplo con BTC @ $72,000, ATR = $1,000:
 ```
 
 #### **Mejor Para:**
-- ✅ BTC/USDT cuando hay noticias que mueven el precio
-- ✅ ETH/USDT en fases de "bull run"
-- ✅ Activos con volumen alto
-- ✅ Timeframes: 5m, 15m, 1h
+-  BTC/USDT cuando hay noticias que mueven el precio
+-  ETH/USDT en fases de "bull run"
+-  Activos con volumen alto
+-  Timeframes: 5m, 15m, 1h
 
 ---
 
@@ -72,12 +72,12 @@ Apuesta a que cuando el precio se **estira demasiado** (arriba o abajo), volver�
 
 #### Indicadores Usados:
 ```
-📍 Bollinger Bands (20 períodos, 2σ):
+ Bollinger Bands (20 períodos, 2σ):
    BB Superior = SMA(20) + (2 × Desviación Estándar)
    BB Medio    = SMA(20)
    BB Inferior = SMA(20) - (2 × Desviación Estándar)
 
-📍 RSI (14 períodos):
+ RSI (14 períodos):
    - RSI < 30 = Sobreventa (precio muy bajo)
    - RSI > 70 = Sobrecompra (precio muy alto)
 ```
@@ -85,9 +85,9 @@ Apuesta a que cuando el precio se **estira demasiado** (arriba o abajo), volver�
 #### Señal de COMPRA:
 ```python
 BUY si:
-  ✓ Precio toca/cruza banda INFERIOR  # Precio muy bajo
-  ✓ RSI < 30                           # Confirmación sobreventa
-  ✓ Expectativa: rebote hacia la media
+   Precio toca/cruza banda INFERIOR  # Precio muy bajo
+   RSI < 30                           # Confirmación sobreventa
+   Expectativa: rebote hacia la media
   
 Ejemplo:
   Precio actual: $65,000
@@ -110,14 +110,14 @@ Ejemplo:
 ```
 
 #### **Mejor Para:**
-- ✅ Mercado lateral (sin tendencia clara)
-- ✅ Pares estables (USDT, USDC pares)
-- ✅ **SOL/USDT**, **MATIC/USDT** (alta volatilidad intraday)
-- ✅ Timeframes: 1m, 5m, 15m
+-  Mercado lateral (sin tendencia clara)
+-  Pares estables (USDT, USDC pares)
+-  **SOL/USDT**, **MATIC/USDT** (alta volatilidad intraday)
+-  Timeframes: 1m, 5m, 15m
 
 ---
 
-## 🔀 Combinación de Estrategias
+##  Combinación de Estrategias
 
 ### **Modo Actual: CONSENSUS**
 
@@ -127,19 +127,19 @@ combination_method = "consensus"
 
 # Solo opera si AMBAS estrategias coinciden
 if momentum.signal == "BUY" AND mean_reversion.signal == "BUY":
-    → Ejecutar trade ✓
+    → Ejecutar trade 
 else:
     → HOLD (no operar)
 ```
 
 **Ventajas:**
-- ✅ **Alta precisión** - Pocas señales falsas
-- ✅ **Menor riesgo** - Confirmación doble
-- ✅ **Ideal para principiantes**
+-  **Alta precisión** - Pocas señales falsas
+-  **Menor riesgo** - Confirmación doble
+-  **Ideal para principiantes**
 
 **Desventajas:**
-- ❌ **Pocas señales** - Se pierden oportunidades
-- ❌ **Lento en mercados activos**
+-  **Pocas señales** - Se pierden oportunidades
+-  **Lento en mercados activos**
 
 ---
 
@@ -153,7 +153,7 @@ Strategies: [Momentum, Mean Reversion, Breakout]
   Momentum:      BUY
   Mean Reversion: HOLD
   Breakout:      BUY
-  → 2/3 = BUY ✓
+  → 2/3 = BUY 
 ```
 
 **Mejor Para:**
@@ -174,13 +174,13 @@ if momentum.signal == "BUY" OR mean_reversion.signal == "BUY":
 ```
 
 **Mejor Para:**
-- ⚠️ **Solo con altísima confianza** (>80%)
+- ️ **Solo con altísima confianza** (>80%)
 - Mercados muy volátiles
 - Day trading agresivo
 
 ---
 
-## 🚀 Otras Estrategias Recomendadas
+##  Otras Estrategias Recomendadas
 
 ### **3. Breakout Strategy** (Rupturas de Niveles)
 
@@ -232,10 +232,10 @@ def setup_grid():
 ```
 
 #### **Mejor Para:**
-- ✅ **STABLECOINS pairs** (USDT/USDC)
-- ✅ Mercado lateral prolongado
-- ✅ Baja volatilidad
-- ✅ **Genera income constante** (scalping)
+-  **STABLECOINS pairs** (USDT/USDC)
+-  Mercado lateral prolongado
+-  Baja volatilidad
+-  **Genera income constante** (scalping)
 
 ---
 
@@ -283,20 +283,20 @@ Acción:
 ```
 
 #### **Mejor Para:**
-- ⚠️ **Requiere capital alto**
+- ️ **Requiere capital alto**
 - Exchanges con fees bajos
 - BTC, ETH (liquidez)
 
 ---
 
-## 🎯 Estrategia Óptima por Par de Activos
+##  Estrategia Óptima por Par de Activos
 
 ### **BTC/USDT** 🪙
 ```
 Mejor combinación:
-✓ Momentum (tendencias fuertes)
-✓ Breakout (noticias, halving)
-✓ Mean Reversion (correcciones)
+ Momentum (tendencias fuertes)
+ Breakout (noticias, halving)
+ Mean Reversion (correcciones)
 
 Recomendación:
 - Timeframe: 15m, 1h
@@ -304,12 +304,12 @@ Recomendación:
 - Max Risk: 1-2% por trade
 ```
 
-### **ETH/USDT** 💎
+### **ETH/USDT** 
 ```
 Mejor combinación:
-✓ Momentum (por correlación con BTC)
-✓ Mean Reversion (oscila más que BTC)
-✓ VWAP (gran volumen)
+ Momentum (por correlación con BTC)
+ Mean Reversion (oscila más que BTC)
+ VWAP (gran volumen)
 
 Recomendación:
 - Timeframe: 5m, 15m
@@ -317,12 +317,12 @@ Recomendación:
 - Más volátil → ajustar stop loss
 ```
 
-### **SOL/USDT, MATIC/USDT** 🚀 (Altcoins)
+### **SOL/USDT, MATIC/USDT**  (Altcoins)
 ```
 Mejor combinación:
-✓ Mean Reversion (altísima volatilidad intraday)
-✓ Grid Trading (oscilaciones constantes)
-✗ Evitar Momentum (falsos breakouts)
+ Mean Reversion (altísima volatilidad intraday)
+ Grid Trading (oscilaciones constantes)
+ Evitar Momentum (falsos breakouts)
 
 Recomendación:
 - Timeframe: 1m, 5m
@@ -330,11 +330,11 @@ Recomendación:
 - Max Risk: 0.5-1% (más riesgoso)
 ```
 
-### **USDC/USDT** 🏦 (Stablecoins)
+### **USDC/USDT**  (Stablecoins)
 ```
 Mejor combinación:
-✓ Grid Trading (oscila 0.01-0.03%)
-✓ Arbitrage (explotar diferencias)
+ Grid Trading (oscila 0.01-0.03%)
+ Arbitrage (explotar diferencias)
 
 Recomendación:
 - Timeframe: 1m
@@ -345,7 +345,7 @@ Recomendación:
 
 ---
 
-## 🔧 Cómo Implementar Nuevas Estrategias
+##  Cómo Implementar Nuevas Estrategias
 
 ### **Paso 1: Crear la estrategia**
 ```bash
@@ -401,14 +401,14 @@ self.combination_method = "majority"  # Cambiar de "consensus"
 
 ---
 
-## 📈 Optimización por Condiciones de Mercado
+##  Optimización por Condiciones de Mercado
 
 ### **Mercado BULL (Subida Fuerte)**
 ```python
 Estrategias activas:
-✓ Momentum (prioridad alta)
-✓ Breakout
-✗ Desactivar Mean Reversion (contra-tendencia)
+ Momentum (prioridad alta)
+ Breakout
+ Desactivar Mean Reversion (contra-tendencia)
 
 Config:
 - Timeframe: 1h, 4h (tendencias largas)
@@ -419,9 +419,9 @@ Config:
 ### **Mercado BEAR (Bajada Fuerte)**
 ```python
 Estrategias activas:
-✓ Mean Reversion (compra en pánico)
-✓ SHORT con Momentum
-✗ Evitar Breakout (fakeouts frecuentes)
+ Mean Reversion (compra en pánico)
+ SHORT con Momentum
+ Evitar Breakout (fakeouts frecuentes)
 
 Config:
 - Timeframe: 15m, 1h
@@ -432,9 +432,9 @@ Config:
 ### **Mercado LATERAL (Rango)**
 ```python
 Estrategias activas:
-✓ Mean Reversion (excelente)
-✓ Grid Trading (perfecto)
-✗ Desactivar Momentum
+ Mean Reversion (excelente)
+ Grid Trading (perfecto)
+ Desactivar Momentum
 
 Config:
 - Timeframe: 1m, 5m
@@ -444,7 +444,7 @@ Config:
 
 ---
 
-## 🧪 Backtesting Recomendado
+##  Backtesting Recomendado
 
 Antes de activar una estrategia nueva:
 
@@ -468,21 +468,21 @@ print(f"Max Drawdown: {results.max_drawdown:.2%}")
 
 # 4. Solo implementar si:
 if results.sharpe > 1.5 and results.win_rate > 0.50:
-    print("✓ Estrategia aprobada")
+    print(" Estrategia aprobada")
 else:
-    print("✗ Necesita optimización")
+    print(" Necesita optimización")
 ```
 
 ---
 
-## 💡 Mejores Prácticas
+##  Mejores Prácticas
 
 ### **1. Diversificación**
 ```
 NO poner todo en una estrategia:
-✓ 40% Momentum
-✓ 40% Mean Reversion
-✓ 20% Breakout/Grid
+ 40% Momentum
+ 40% Mean Reversion
+ 20% Breakout/Grid
 ```
 
 ### **2. Risk Management**
@@ -507,7 +507,7 @@ Por estrategia:
 
 ---
 
-## 📚 Recursos Adicionales
+##  Recursos Adicionales
 
 - **Documentación técnica completa:** [`TRADING_STRATEGIES.md`](./TRADING_STRATEGIES.md)
 - **Paper de Momentum:** Jegadeesh & Titman (1993)

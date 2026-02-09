@@ -1,4 +1,4 @@
-# 🚀 Multi-Symbol Portfolio Trading Bot
+#  Multi-Symbol Portfolio Trading Bot
 
 Sistema de trading automatizado para criptomonedas con soporte multi-par, gestión de riesgo a nivel portfolio, y estrategias personalizables.
 
@@ -7,32 +7,32 @@ Sistema de trading automatizado para criptomonedas con soporte multi-par, gesti�
 
 ---
 
-## 📋 Características Principales
+##  Características Principales
 
 ### **Multi-Symbol Trading**
-- ✅ Soporte para múltiples pares simultáneos (BTC, ETH, SOL...)
-- ✅ Un solo WebSocket para todos los pares (eficiente)
-- ✅ Arquitectura event-driven (procesamiento asíncrono)
+-  Soporte para múltiples pares simultáneos (BTC, ETH, SOL...)
+-  Un solo WebSocket para todos los pares (eficiente)
+-  Arquitectura event-driven (procesamiento asíncrono)
 
 ### **Portfolio Risk Management**
-- ✅ Control de exposición global (límite 10% del capital)
-- ✅ Gestión de correlación (evita sobre-exposición BTC+ETH)
-- ✅ ATR normalization (mismo riesgo $ para volatilidades diferentes)
+-  Control de exposición global (límite 10% del capital)
+-  Gestión de correlación (evita sobre-exposición BTC+ETH)
+-  ATR normalization (mismo riesgo $ para volatilidades diferentes)
 
 ### **Estrategias Personalizables**
-- ✅ Mean Reversion para pares estables (BTC, ETH)
-- ✅ Momentum para pares volátiles (SOL, MATIC)
-- ✅ Parámetros específicos por par
+-  Mean Reversion para pares estables (BTC, ETH)
+-  Momentum para pares volátiles (SOL, MATIC)
+-  Parámetros específicos por par
 
 ### **Seguridad**
-- ✅ Modo DRY_RUN (simulación sin órdenes reales)
-- ✅ Testnet de Binance soportado
-- ✅ Circuit breakers y kill switches
-- ✅ Profiles de riesgo (Conservative, Moderate, Advanced)
+-  Modo DRY_RUN (simulación sin órdenes reales)
+-  Testnet de Binance soportado
+-  Circuit breakers y kill switches
+-  Profiles de riesgo (Conservative, Moderate, Advanced)
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### **1. Instalación**
 
@@ -85,15 +85,15 @@ TRADING_PROFILE=conservative  # conservative | moderate | advanced
 =========================================
 MULTI-SYMBOL TRADING BOT
 =========================================
-✓ Multi-Symbol Feed Handler (BTC/ETH/SOL)
-✓ Multi-Symbol Trading Engine
+ Multi-Symbol Feed Handler (BTC/ETH/SOL)
+ Multi-Symbol Trading Engine
 Trading pairs: BTC/USDT, ETH/USDT, SOL/USDT
 Mode: DRY_RUN (simulación)
 ```
 
 ---
 
-## ⚙️ Configuración de Pares
+## ️ Configuración de Pares
 
 ### **Agregar nuevo par:**
 
@@ -127,7 +127,7 @@ Reiniciar el bot → detectará automáticamente el nuevo par.
 
 ---
 
-## 📊 Perfiles de Trading
+##  Perfiles de Trading
 
 | Perfil | Capital | Combinación | Min Conf | Risk/Trade |
 |---|---|---|---|---|
@@ -139,7 +139,7 @@ Ver [`PERFILES_GUIA.md`](PERFILES_GUIA.md) para detalles completos.
 
 ---
 
-## 📈 Estrategias Disponibles
+##  Estrategias Disponibles
 
 ### **1. Mean Reversion**
 - **Para:** BTC, ETH (pares estables)
@@ -155,7 +155,7 @@ Ver [`TRADING_STRATEGIES.md`](TRADING_STRATEGIES.md) para análisis económico c
 
 ---
 
-## 🏗️ Arquitectura
+## ️ Arquitectura
 
 ```
 Safe List Config
@@ -174,7 +174,7 @@ Feed Handler (Binance WS) ──→ Multi-Symbol Engine
 
 ---
 
-## 📁 Estructura del Proyecto
+##  Estructura del Proyecto
 
 ```
 trading-bot/
@@ -195,7 +195,7 @@ trading-bot/
 
 ---
 
-## 🔧 Para Desarrolladores
+##  Para Desarrolladores
 
 ### **Agregar nueva estrategia:**
 
@@ -209,7 +209,7 @@ Ver guía completa en [`README_TECHNICAL.md`](README_TECHNICAL.md#-cómo-agregar
 
 ---
 
-## ⚠️ Gestión de Riesgo
+## ️ Gestión de Riesgo
 
 ### **Portfolio-Level Controls:**
 
@@ -234,7 +234,7 @@ SOL estable: compra más units
 
 ---
 
-## 🧪 Testing
+##  Testing
 
 ```bash
 # Test configuración
@@ -249,16 +249,16 @@ python3 -m apps.executor.multi_symbol_engine
 
 ---
 
-## 📚 Documentación
+##  Documentación
 
-- 📘 [`README_TECHNICAL.md`](README_TECHNICAL.md) - Guía técnica para desarrolladores
-- 📗 [`PERFILES_GUIA.md`](PERFILES_GUIA.md) - Guía de perfiles de trading
-- 📕 [`TRADING_STRATEGIES.md`](TRADING_STRATEGIES.md) - Análisis económico de estrategias
-- 📙 [`ESTRATEGIAS_POR_PAR.md`](ESTRATEGIAS_POR_PAR.md) - Configuración por par
+-  [`README_TECHNICAL.md`](README_TECHNICAL.md) - Guía técnica para desarrolladores
+-  [`PERFILES_GUIA.md`](PERFILES_GUIA.md) - Guía de perfiles de trading
+-  [`TRADING_STRATEGIES.md`](TRADING_STRATEGIES.md) - Análisis económico de estrategias
+-  [`ESTRATEGIAS_POR_PAR.md`](ESTRATEGIAS_POR_PAR.md) - Configuración por par
 
 ---
 
-## 🔮 Roadmap
+##  Roadmap
 
 - [ ] **Database Persistence:** State recovery con SQLite
 - [ ] **ML Interface:** Preparación para RL agents (PPO, DQN)
@@ -268,23 +268,23 @@ python3 -m apps.executor.multi_symbol_engine
 
 ---
 
-## 🛡️ Seguridad
+## ️ Seguridad
 
-- ✅ **DRY_RUN mode:** Prueba sin riesgo
-- ✅ **Testnet primero:** Nunca empieces en producción
-- ✅ **Kill Switch:** Detiene si pérdida diaria > 5%
-- ✅ **API Keys en .env:** Nunca en código
-- ✅ **Stop Loss dinámico:** Basado en ATR
+-  **DRY_RUN mode:** Prueba sin riesgo
+-  **Testnet primero:** Nunca empieces en producción
+-  **Kill Switch:** Detiene si pérdida diaria > 5%
+-  **API Keys en .env:** Nunca en código
+-  **Stop Loss dinámico:** Basado en ATR
 
 ---
 
-## ⚖️ Licencia
+## ️ Licencia
 
 MIT License - Ver [LICENSE](LICENSE)
 
 ---
 
-## ⚠️ Disclaimer
+## ️ Disclaimer
 
 **Este bot es para fines educacionales.** Trading de criptomonedas conlleva riesgo significativo de pérdida. 
 
@@ -296,7 +296,7 @@ MIT License - Ver [LICENSE](LICENSE)
 
 ---
 
-## 🤝 Contribuir
+##  Contribuir
 
 Contributions are welcome!
 

@@ -86,7 +86,7 @@ ATR(14): $1,000
 RSI: 62 (momentum alcista)
 EMA(12): $49,800
 EMA(26): $49,500
-Cruce: EMA(12) acaba de cruzar arriba ✓
+Cruce: EMA(12) acaba de cruzar arriba 
 
 SEÑAL: LONG
 
@@ -312,7 +312,7 @@ Quieres controlar: 1 BTC @ $50,000 = $50,000 notional
 Apalancamiento: 10x
 Margen requerido: $50,000 / 10 = $5,000
 
-⚠️ Precio de Liquidación:
+️ Precio de Liquidación:
 Long con 10x: $50,000 × (1 - 1/10) = $45,000
 Si BTC cae a $45,000, pierdes el margen completo
 ```
@@ -416,7 +416,7 @@ Fee salida: $4,800 × 0.0006 = $2.88
 P&L neto: -$200 - $3.00 - $2.88 = -$205.88
 
 Balance final: $9,794.12
-Pérdida: 2.06% ✓ (dentro del límite de 2%)
+Pérdida: 2.06%  (dentro del límite de 2%)
 ```
 
 ---
@@ -446,16 +446,16 @@ Pérdida: 2.06% ✓ (dentro del límite de 2%)
 ### Psicología del Trading Algorítmico
 
 **Ventajas:**
-- ✅ Sin emociones
-- ✅ Disciplina perfecta
-- ✅ Backtesting objetivo
-- ✅ Ejecución instantánea
+-  Sin emociones
+-  Disciplina perfecta
+-  Backtesting objetivo
+-  Ejecución instantánea
 
 **Desafíos:**
-- ❌ Overfitting (optimizar para el pasado)
-- ❌ Cambios de régimen de mercado
-- ❌ Eventos de cisne negro
-- ❌ Costos de transacción ignorados
+-  Overfitting (optimizar para el pasado)
+-  Cambios de régimen de mercado
+-  Eventos de cisne negro
+-  Costos de transacción ignorados
 
 ---
 

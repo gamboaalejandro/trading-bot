@@ -107,7 +107,7 @@ class MeanReversionStrategy(BaseStrategy):
         price_position = (current_price - bb_lower) / bb_width
         
         # DEBUG: Log exact values to diagnose 0% confidence
-        self.logger.debug(f"📊 RSI={current_rsi:.1f}, BB_pos={price_position:.2%}, Price=${current_price:.2f}")
+        self.logger.debug(f" RSI={current_rsi:.1f}, BB_pos={price_position:.2%}, Price=${current_price:.2f}")
         self.logger.debug(f"   Lower={bb_lower:.2f}, Mid={bb_middle:.2f}, Upper={bb_upper:.2f}")
         
         # BUY SIGNAL - Price near/below lower band + oversold RSI

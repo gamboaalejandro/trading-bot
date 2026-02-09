@@ -109,7 +109,7 @@ class ProfessionalRiskManager:
         max_daily_loss = balance * self.cfg.max_daily_drawdown
         if self.current_daily_loss <= -max_daily_loss:
             logger.warning(
-                f"⚠️ KILL SWITCH ACTIVATED: Daily loss limit reached "
+                f"️ KILL SWITCH ACTIVATED: Daily loss limit reached "
                 f"({self.current_daily_loss:.2f} / -{max_daily_loss:.2f})"
             )
             return 0.0
@@ -153,13 +153,13 @@ class ProfessionalRiskManager:
         notional_value = quantity_asset * entry_price
         if notional_value < self.cfg.min_notional_usdt:
             logger.warning(
-                f"⚠️ Order rejected: Notional value {notional_value:.2f} < "
+                f"️ Order rejected: Notional value {notional_value:.2f} < "
                 f"{self.cfg.min_notional_usdt} USDT minimum"
             )
             return 0.0
         
         logger.info(
-            f"✓ Position approved: {quantity_asset:.6f} units @ ${entry_price:.2f} "
+            f"[OK] Position approved: {quantity_asset:.6f} units @ ${entry_price:.2f} "
             f"(notional: ${notional_value:.2f}, SL: ${stop_loss_price:.2f})"
         )
         
@@ -195,7 +195,7 @@ class ProfessionalRiskManager:
         
         if tr_pct > threshold:
             logger.warning(
-                f"⚠️ Market too volatile ({tr_pct:.2%} > {threshold:.2%}). "
+                f"️ Market too volatile ({tr_pct:.2%} > {threshold:.2%}). "
                 f"Operation cancelled for safety."
             )
             return False
@@ -330,7 +330,7 @@ class PortfolioRiskManager(ProfessionalRiskManager):
                 f"Total exposure would be ${new_exposure:.2f} "
                 f"> ${max_exposure:.2f} ({self.cfg.max_total_exposure*100}%)"
             )
-            logger.warning(f"❌ {symbol} - Portfolio REJECTED: {reason}")
+            logger.warning(f" {symbol} - Portfolio REJECTED: {reason}")
             return False, reason
         
         # Check 2: Correlated positions
@@ -344,11 +344,11 @@ class PortfolioRiskManager(ProfessionalRiskManager):
                 f"{symbol} correlates with {correlated_open} open positions: "
                 f"{[s for s in correlated_symbols if s in self.active_positions]}"
             )
-            logger.warning(f"❌ {symbol} - Portfolio REJECTED: {reason}")
+            logger.warning(f" {symbol} - Portfolio REJECTED: {reason}")
             return False, reason
         
         logger.info(
-            f"✓ {symbol} - Portfolio approved "
+            f"[OK] {symbol} - Portfolio approved "
             f"(exposure: ${new_exposure:.2f}/{max_exposure:.2f})"
         )
         return True, "OK"

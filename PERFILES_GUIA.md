@@ -1,4 +1,4 @@
-# 🎯 Guía de Uso: Sistema de Perfiles de Trading
+#  Guía de Uso: Sistema de Perfiles de Trading
 
 ## Resumen
 
@@ -6,7 +6,7 @@ El sistema de perfiles permite ajustar automáticamente cómo el trading bot com
 
 ---
 
-## 📊 Perfiles Disponibles
+##  Perfiles Disponibles
 
 ### **1. Conservative (Conservador)**
 ```
@@ -18,10 +18,10 @@ Max Positions: 1
 ```
 
 **Características:**
-- ✅ **Máxima seguridad** - Solo opera con consenso total
-- ✅ **Ideal para principiantes**
-- ✅ **Pocas señales** pero alta precisión
-- ❌ Puede perder oportunidades
+-  **Máxima seguridad** - Solo opera con consenso total
+-  **Ideal para principiantes**
+-  **Pocas señales** pero alta precisión
+-  Puede perder oportunidades
 
 **Cuándo usar:**
 - Tu primer mes de trading
@@ -40,10 +40,10 @@ Max Positions: 3
 ```
 
 **Características:**
-- ✅ **Balance entre seguridad y oportunidades**
-- ✅ **Más señales** que conservative
-- ✅ Permite múltiples posiciones
-- ⚖️ Riesgo moderado
+-  **Balance entre seguridad y oportunidades**
+-  **Más señales** que conservative
+-  Permite múltiples posiciones
+- ️ Riesgo moderado
 
 **Cuándo usar:**
 - Tienes experiencia (3+ meses)
@@ -62,10 +62,10 @@ Max Positions: 5
 ```
 
 **Características:**
-- ⚡ **Máxima frecuencia de trades**
-- ⚡ Usa ponderación inteligente
-- ⚠️ **Mayor riesgo/recompensa**
-- 🎯 Para traders experimentados
+-  **Máxima frecuencia de trades**
+-  Usa ponderación inteligente
+- ️ **Mayor riesgo/recompensa**
+-  Para traders experimentados
 
 **Cuándo usar:**
 - Experiencia > 6 meses
@@ -74,7 +74,7 @@ Max Positions: 5
 
 ---
 
-## ⚙️ Cómo Cambiar de Perfil
+## ️ Cómo Cambiar de Perfil
 
 ### **Método 1: Editar .env (Recomendado)**
 
@@ -102,18 +102,18 @@ MIN_CONFIDENCE_THRESHOLD=0.70          # Override el threshold
 
 ---
 
-## 🔍 Métodos de Combinación Explicados
+##  Métodos de Combinación Explicados
 
 ### **Consensus** (Conservador)
 ```python
 # TODAS las estrategias deben coincidir
 Momentum:      BUY  (65%)
 Mean Reversion: BUY  (70%)
-→ Resultado: BUY ✓
+→ Resultado: BUY 
 
 Momentum:      BUY  (65%)
 Mean Reversion: HOLD (30%)
-→ Resultado: NO TRADE ✗
+→ Resultado: NO TRADE 
 ```
 
 ### **Majority** (Moderado)
@@ -123,12 +123,12 @@ Con 3 estrategias:
 Momentum:      BUY  (75%)
 Mean Reversion: BUY  (60%)
 Breakout:      HOLD (40%)
-→ 2/3 = BUY ✓
+→ 2/3 = BUY 
 
 Con 2 estrategias (como ahora):
 Momentum:      BUY  (75%)
 Mean Reversion: BUY  (60%)
-→ 2/2 = BUY ✓
+→ 2/2 = BUY 
 ```
 
 ### **Weighted** (Avanzado)
@@ -136,12 +136,12 @@ Mean Reversion: BUY  (60%)
 # Suma ponderada por confianza
 Momentum:      BUY  @ 80% = +0.80
 Mean Reversion: SELL @ 55% = -0.55
-→ Diferencia: 0.25 (BUY gana) ✓
+→ Diferencia: 0.25 (BUY gana) 
 
 # Requiere diferencia >0.3 para ejecutar
 Momentum:      BUY  @ 60% = +0.60
 Mean Reversion: SELL @ 58% = -0.58
-→ Diferencia: 0.02 (muy close, NO TRADE) ✗
+→ Diferencia: 0.02 (muy close, NO TRADE) 
 ```
 
 ### **Any** (Agresivo - No recomendado sin experiencia)
@@ -149,14 +149,14 @@ Mean Reversion: SELL @ 58% = -0.58
 # Cualquier señal >min_confidence
 Momentum:      HOLD (30%)
 Mean Reversion: BUY  (65%)
-→ Resultado: BUY ✓
+→ Resultado: BUY 
 
 # Genera MUCHAS señales, mayor riesgo
 ```
 
 ---
 
-## 📈 Logs al Iniciar
+##  Logs al Iniciar
 
 Cuando el bot arranca, verás estos logs mostrando el perfil activo:
 
@@ -169,7 +169,7 @@ Cuando el bot arranca, verás estos logs mostrando el perfil activo:
 
 ---
 
-## 🧪 Recomendación de Prueba
+##  Recomendación de Prueba
 
 ### **Día 1-7: Conservative**
 ```
@@ -197,7 +197,7 @@ TRADING_PROFILE=advanced
 
 ---
 
-## ⚠️ Advertencias
+## ️ Advertencias
 
 1. **NO uses Advanced sin experiencia** - El sistema puede generar muchas señales
 2. **DRY_RUN primero SIEMPRE** - Prueba 1-2 semanas antes de trading real
@@ -206,7 +206,7 @@ TRADING_PROFILE=advanced
 
 ---
 
-## 📊 Comparación Rápida
+##  Comparación Rápida
 
 | Aspecto | Conservative | Moderate | Advanced |
 |---|---|---|---|

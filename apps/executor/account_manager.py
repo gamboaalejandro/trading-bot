@@ -184,7 +184,7 @@ class AccountManager:
         sl_str = f"${stop_loss:.2f}" if stop_loss else "None"
         tp_str = f"${take_profit:.2f}" if take_profit else "None"
         logger.info(
-            f"✓ Opened {side.upper()} position: {size} {symbol} @ ${entry_price:.2f} "
+            f"[OK] Opened {side.upper()} position: {size} {symbol} @ ${entry_price:.2f} "
             f"(SL: {sl_str}, TP: {tp_str})"
         )
         
@@ -252,7 +252,7 @@ class AccountManager:
         del self.open_positions[symbol]
         
         logger.info(
-            f"✓ Closed {position.side.value.upper()} position: {symbol} @ ${exit_price:.2f} | "
+            f"[OK] Closed {position.side.value.upper()} position: {symbol} @ ${exit_price:.2f} | "
             f"P&L: ${realized_pnl:+.2f} ({closed_trade.get_roi():+.2f}%)"
         )
         

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script para probar conectividad con Binance Futures Testnet
 
-echo "🧪 Probando Binance Futures Testnet"
+echo " Probando Binance Futures Testnet"
 echo "===================================="
 echo ""
 
@@ -13,7 +13,7 @@ TESTNET_BASE="https://testnet.binancefuture.com"
 API_KEY="${BINANCE_TESTNET_API_KEY}"
 SECRET="${BINANCE_TESTNET_SECRET}"
 
-echo "📡 Test 1: Ping al servidor (público - sin autenticación)"
+echo " Test 1: Ping al servidor (público - sin autenticación)"
 echo "-----------------------------------------------------------"
 curl -s "${TESTNET_BASE}/fapi/v1/ping" | jq '.' || echo "Response: OK (empty JSON expected)"
 echo ""
@@ -25,13 +25,13 @@ curl -s "${TESTNET_BASE}/fapi/v1/time" | jq '.'
 echo ""
 echo ""
 
-echo "📊 Test 3: Exchange Info (público)"
+echo " Test 3: Exchange Info (público)"
 echo "-----------------------------------------------------------"
 curl -s "${TESTNET_BASE}/fapi/v1/exchangeInfo" | jq '.symbols[0] | {symbol, status, contractType}' | head -20
 echo ""
 echo ""
 
-echo "💰 Test 4: Balance (privado - requiere firma)"
+echo " Test 4: Balance (privado - requiere firma)"
 echo "-----------------------------------------------------------"
 echo "Preparando request firmado..."
 
@@ -59,16 +59,16 @@ RESPONSE=$(curl -s -H "X-MBX-APIKEY: ${API_KEY}" "${FULL_URL}")
 # Mostrar resultado
 echo ""
 if echo "${RESPONSE}" | jq '.' > /dev/null 2>&1; then
-    echo "✅ Response válida:"
+    echo " Response válida:"
     echo "${RESPONSE}" | jq '.[] | select(.balance != "0") | {asset, balance, availableBalance}'
 else
-    echo "❌ Error en la respuesta:"
+    echo " Error en la respuesta:"
     echo "${RESPONSE}"
 fi
 
 echo ""
 echo ""
-echo "📍 Test 5: Posiciones Actuales (privado)"
+echo " Test 5: Posiciones Actuales (privado)"
 echo "-----------------------------------------------------------"
 
 # Nuevo timestamp para otro request
@@ -80,7 +80,7 @@ FULL_URL="${TESTNET_BASE}/fapi/v2/positionRisk?${QUERY_STRING}&signature=${SIGNA
 RESPONSE=$(curl -s -H "X-MBX-APIKEY: ${API_KEY}" "${FULL_URL}")
 
 if echo "${RESPONSE}" | jq '.' > /dev/null 2>&1; then
-    echo "✅ Response válida:"
+    echo " Response válida:"
     echo "${RESPONSE}" | jq '.[] | select(.positionAmt != "0") | {symbol, positionAmt, entryPrice, unrealizedProfit}'
     
     # Si no hay posiciones abiertas
@@ -88,7 +88,7 @@ if echo "${RESPONSE}" | jq '.' > /dev/null 2>&1; then
         echo "ℹ️  No hay posiciones abiertas"
     fi
 else
-    echo "❌ Error en la respuesta:"
+    echo " Error en la respuesta:"
     echo "${RESPONSE}"
 fi
 

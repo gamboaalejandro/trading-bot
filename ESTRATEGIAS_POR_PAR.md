@@ -1,10 +1,10 @@
-# 🎯 Estrategias Óptimas por Par de Activos
+#  Estrategias Óptimas por Par de Activos
 
 Este documento define qué estrategias usar para cada par de trading según sus características de mercado.
 
 ---
 
-## 📊 Matriz de Estrategias por Asset
+##  Matriz de Estrategias por Asset
 
 | Par de Monedas | Estrategia Principal | Estrategia Secundaria | Por Qué |
 |---|---|---|---|
@@ -18,7 +18,7 @@ Este documento define qué estrategias usar para cada par de trading según sus 
 
 ---
 
-## 🔧 Implementación por Categoría
+##  Implementación por Categoría
 
 ### **Tier 1: Majors (BTC, ETH)**
 
@@ -135,11 +135,11 @@ EVENT_FILTER = True  # Solo operar en anuncios de protocolo
 
 ---
 
-### **Tier 6: Meme Coins (DOGE, SHIB, PEPE)** ⚠️
+### **Tier 6: Meme Coins (DOGE, SHIB, PEPE)** ️
 
 **Configuración:**
 ```python
-# meme_config.py (⚠️ MUY RIESGOSO)
+# meme_config.py (️ MUY RIESGOSO)
 STRATEGIES = [
     BreakoutStrategy(
         lookback_periods=50,
@@ -154,7 +154,7 @@ MAX_POSITIONS = 1  # Solo 1 posición a la vez
 ```
 
 **Razón:**
-- ⚠️ **Extremadamente volátil y manipulable**
+- ️ **Extremadamente volátil y manipulable**
 - Solo operar breakouts con:
   - Volumen 3x+ del promedio
   - Sentiment social positivo
@@ -163,7 +163,7 @@ MAX_POSITIONS = 1  # Solo 1 posición a la vez
 
 ---
 
-## 📋 Plantilla de Configuración
+##  Plantilla de Configuración
 
 Para agregar un nuevo par, copia y modifica:
 
@@ -199,7 +199,7 @@ PAIR_CONFIG = {
 
 ---
 
-## 🎯 Selección Rápida
+##  Selección Rápida
 
 ### **Quiero Profit Consistente (Bajo Riesgo):**
 ```
@@ -235,7 +235,7 @@ Risk: 0.2-0.5%
 
 ---
 
-## 🔄 Adaptación Dinámica
+##  Adaptación Dinámica
 
 El bot puede cambiar estrategias según condiciones:
 
@@ -256,7 +256,7 @@ def select_strategy_by_market_condition(symbol, market_condition):
 
 ---
 
-## 📊 Métricas de Validación
+##  Métricas de Validación
 
 Antes de implementar una configuración nueva, validar con backtesting:
 
@@ -270,7 +270,7 @@ Antes de implementar una configuración nueva, validar con backtesting:
 
 ---
 
-## 🚀 Implementación en Trading Engine
+##  Implementación en Trading Engine
 
 ```python
 # trading_engine.py
@@ -297,7 +297,7 @@ for symbol, config in ACTIVE_PAIRS.items():
 
 ---
 
-## ⚠️ Advertencias Importantes
+## ️ Advertencias Importantes
 
 1. **Nunca operar todos los pares** - Diversifica pero no te disperses
 2. **Empezar con Tier 1** - BTC/ETH primero, luego expandir

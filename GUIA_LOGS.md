@@ -1,4 +1,4 @@
-# 📊 Guía: Ver Señales de Trading en Vivo
+#  Guía: Ver Señales de Trading en Vivo
 
 ## Opción 1: Ver Logs en Vivo (Recomendado)
 
@@ -26,7 +26,7 @@ Verás los logs del orchestrator, pero no los detalles del engine.
 
 ---
 
-## 📋 Qué Esperar Ver
+##  Qué Esperar Ver
 
 ### **Actividad Normal (Sin Señales):**
 
@@ -37,26 +37,26 @@ Verás los logs del orchestrator, pero no los detalles del engine.
 ```
 
 Esto significa que el bot está:
-- ✅ Recibiendo datos de Binance
-- ✅ Actualizando candles OHLCV
-- ✅ Analizando el mercado
+-  Recibiendo datos de Binance
+-  Actualizando candles OHLCV
+-  Analizando el mercado
 
 ---
 
 ### **Cuando HAY una Señal de Trading:**
 
 ```
-🔔 BTC/USDT - Signal: BUY (confidence: 67%)
+ BTC/USDT - Signal: BUY (confidence: 67%)
    Entry: $42,350.00
    Stop Loss: $41,800.00
    Risk/Reward: 1:2.5
 
-✓ Portfolio approved (exposure: $500/$1000)
+ Portfolio approved (exposure: $500/$1000)
    Position Size: $200.00 (0.0047 BTC)
    Stop Loss: $41,800.00
    Risk per Trade: 1.0%
 
-🔵 DRY RUN MODE - Trade NOT executed
+ DRY RUN MODE - Trade NOT executed
    (En modo real, se habría ejecutado)
 ```
 
@@ -65,25 +65,25 @@ Esto significa que el bot está:
 ### **Cuando una Señal es RECHAZADA:**
 
 ```
-🔔 ETH/USDT - Signal: BUY (confidence: 62%)
+ ETH/USDT - Signal: BUY (confidence: 62%)
 
-❌ Portfolio REJECTED: Total exposure would be $1500 > $1000 (10%)
+ Portfolio REJECTED: Total exposure would be $1500 > $1000 (10%)
    Reason: Ya tienes $1000 en BTC, agregar ETH excedería límite
 ```
 
 O:
 
 ```
-🔔 ETH/USDT - Signal: BUY (confidence: 62%)
+ ETH/USDT - Signal: BUY (confidence: 62%)
 
-❌ Portfolio REJECTED: Too many correlated positions
+ Portfolio REJECTED: Too many correlated positions
    BTC already open, ETH correlates with BTC
    Max correlated positions: 2
 ```
 
 ---
 
-## 🔍 Monitoreo Avanzado
+##  Monitoreo Avanzado
 
 ### **Ver solo señales de trading:**
 ```bash
@@ -112,13 +112,13 @@ O:
 - **Condiciones de mercado:** Sideways = pocas señales
 
 **Si no ves señales después de 30 minutos:**
-- ✅ Normal si el mercado está estable
-- ✅ El bot sigue funcionando correctamente
-- ✅ Está esperando condiciones óptimas
+-  Normal si el mercado está estable
+-  El bot sigue funcionando correctamente
+-  Está esperando condiciones óptimas
 
 ---
 
-## 🎯 Probar Generación de Señales
+##  Probar Generación de Señales
 
 Si quieres ver señales más rápido para testing:
 
@@ -143,7 +143,7 @@ TRADING_PROFILE=moderate  # Confidence 60% vs 65%
 
 ---
 
-## 📊 Estado del Sistema
+##  Estado del Sistema
 
 ### **Ver si está corriendo:**
 ```bash
@@ -157,7 +157,7 @@ htop -p $(pgrep -f multi_symbol)
 
 ---
 
-## 🛑 Detener el Bot
+##  Detener el Bot
 
 En la terminal donde corre:
 ```

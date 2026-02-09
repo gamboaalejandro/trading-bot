@@ -1,4 +1,4 @@
-# 🔴 Diagnóstico: Por qué el bot no hizo nada en 7 horas
+#  Diagnóstico: Por qué el bot no hizo nada en 7 horas
 
 ## Problemas Encontrados
 
@@ -6,10 +6,10 @@
 Después de 7 horas corriendo, cuando intenté ver los últimos 50 logs del engine, **no retornó NADA**.
 
 **Esto significa:**
-- ❌ NO está procesando ticks
-- ❌ NO está actualizando candles
-- ❌ NO está ejecutando estrategias
-- ❌ Posiblemente está bloqueado o en un loop infinito sin logs
+-  NO está procesando ticks
+-  NO está actualizando candles
+-  NO está ejecutando estrategias
+-  Posiblemente está bloqueado o en un loop infinito sin logs
 
 ---
 
@@ -32,12 +32,12 @@ No había forma de saber si el bot estaba realmente procesando datos o simplemen
 
 **Solución:**
 - Agregado contador de ticks
-- Log cada 100 ticks: `📊 Processed 100 ticks total`
+- Log cada 100 ticks: ` Processed 100 ticks total`
 - Log cuando NO hay señales (para saber qué está pasando)
 
 ---
 
-## ✅ Cambios Aplicados
+##  Cambios Aplicados
 
 ### **1. Logging de Actualización de Candles**
 ```python
@@ -67,14 +67,14 @@ else:
 # Línea 240-242
 self.tick_count += 1
 if self.tick_count % 100 == 0:
-    logger.info(f"📊 Processed {self.tick_count} ticks total")
+    logger.info(f" Processed {self.tick_count} ticks total")
 ```
 
 **Efecto:** Confirmación cada 100 ticks de que el sistema está vivo.
 
 ---
 
-## 🔍 Próximos Pasos para Diagnosticar
+##  Próximos Pasos para Diagnosticar
 
 ### **1. Reiniciar con nuevo logging**
 ```bash
@@ -96,7 +96,7 @@ pkill -f "multi_symbol"
 2026-02-06 08:00:00 - INFO - BTC/USDT: Updated 100 candles, last at 2026-02-06 08:00:00
 2026-02-06 08:00:05 - INFO - ETH/USDT: Updated 100 candles, last at 2026-02-06 08:00:05
 2026-02-06 08:00:10 - INFO - SOL/USDT: Updated 100 candles, last at 2026-02-06 08:00:10
-2026-02-06 08:01:00 - INFO - 📊 Processed 100 ticks total
+2026-02-06 08:01:00 - INFO -  Processed 100 ticks total
 ```
 
 ---
@@ -121,7 +121,7 @@ Published 100 total messages
 
 ---
 
-## 📊 Razones Normales para No Ver Señales
+##  Razones Normales para No Ver Señales
 
 Incluso con el sistema funcionando, es NORMAL no ver señales si:
 
@@ -144,7 +144,7 @@ Si BTC está en RSI 45-55 (neutral) → no hay señal.
 
 ---
 
-## 🎯 Prueba Rápida: Reducir Threshold
+##  Prueba Rápida: Reducir Threshold
 
 **Para testing, bajar confidence temporalmente:**
 
@@ -163,7 +163,7 @@ Deberías ver señales más frecuentes (aunque de menor calidad).
 
 ---
 
-## 🔴 Si Después de Esto NO Ves Logs
+##  Si Después de Esto NO Ves Logs
 
 Entonces hay un bug crítico en el engine. Posibles causas:
 

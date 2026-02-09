@@ -27,13 +27,13 @@ async def check_status():
         balance_info = await connector.get_balance()
         usdt_balance = balance_info.get('USDT', {})
         
-        print("\n💰 BALANCE:")
+        print("\n BALANCE:")
         print(f"   Disponible:    ${usdt_balance.get('free', 0):,.2f} USDT")
         print(f"   En órdenes:    ${usdt_balance.get('used', 0):,.2f} USDT")
         print(f"   Total:         ${usdt_balance.get('total', 0):,.2f} USDT")
         
         # Posiciones
-        print("\n📊 POSICIONES ABIERTAS:")
+        print("\n POSICIONES ABIERTAS:")
         positions = await connector.get_positions()
         
         if not positions:
@@ -48,7 +48,7 @@ async def check_status():
                 unrealized_pnl = pos.get('unrealizedPnl', 0)
                 leverage = pos.get('leverage', 1)
                 
-                pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
+                pnl_color = "🟢" if unrealized_pnl >= 0 else ""
                 
                 print(f"\n   {symbol}:")
                 print(f"      Lado:         {side.upper()}")
@@ -59,7 +59,7 @@ async def check_status():
                 print(f"      P&L:          {pnl_color} ${unrealized_pnl:,.2f}")
         
         # Ticker de los pares principales
-        print("\n📈 PRECIOS ACTUALES:")
+        print("\n PRECIOS ACTUALES:")
         symbols = ['BTC/USDT', 'ETH/USDT']
         for symbol in symbols:
             try:
@@ -67,7 +67,7 @@ async def check_status():
                 price = ticker.get('last', 0)
                 change = ticker.get('percentage', 0)
                 
-                change_color = "🟢" if change >= 0 else "🔴"
+                change_color = "🟢" if change >= 0 else ""
                 print(f"   {symbol}: ${price:,.2f} {change_color} {change:+.2f}%")
             except:
                 pass

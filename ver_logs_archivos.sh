@@ -4,7 +4,7 @@
 # Muestra feed handler + trading engine lado a lado
 
 echo "════════════════════════════════════════════════════════════"
-echo "📊 DASHBOARD DE LOGS - Trading Bot"
+echo " DASHBOARD DE LOGS - Trading Bot"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 echo "Mostrando logs en tiempo real de:"
@@ -20,12 +20,12 @@ mkdir -p logs
 
 # Verificar si los archivos de log existen
 if [ ! -f "logs/feed_handler.log" ]; then
-    echo "⚠️  logs/feed_handler.log no existe aún"
+    echo "️  logs/feed_handler.log no existe aún"
     echo "   El feed handler generará este archivo al iniciar"
 fi
 
 if [ ! -f "logs/trading_engine.log" ]; then
-    echo "⚠️  logs/trading_engine.log no existe aún"
+    echo "️  logs/trading_engine.log no existe aún"
     echo "   El trading engine generará este archivo al iniciar"
 fi
 

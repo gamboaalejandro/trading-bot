@@ -1,9 +1,11 @@
 """
 Feed Handler Daemon - Multi-Symbol Market Data Streaming Service
+NOW USING NATIVE BINANCE WEBSOCKET (NO CCXT)
+
 Connects to Binance WebSocket and publishes normalized data via ZeroMQ.
 
 Key Features:
-- Multi-symbol support (efficient single WebSocket)
+- Multi-symbol support (efficient combined WebSocket stream)
 - Topic-based publishing (subscribers can filter by symbol)
 - Fault tolerance with auto-reconnection
 """
@@ -22,7 +24,8 @@ try:
 except ImportError:
     logging.warning("uvloop not available, using standard asyncio")
 
-import ccxt.pro as ccxt
+# CHANGED: Import native WebSocket client instead of ccxt
+from core.binance_websocket import BinanceWebSocket
 from core.config import settings
 from config.safe_list import get_active_symbols
 
@@ -40,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 class MultiSymbolFeedHandler:
     """
-    Multi-Symbol Feed Handler
+    Multi-Symbol Feed Handler using Native Binance WebSocket
     
     Subscribes to multiple trading pairs and publishes data with topics.
     More efficient than running multiple instances (single WebSocket connection).
@@ -57,18 +60,20 @@ class MultiSymbolFeedHandler:
         self.symbols = symbols or get_active_symbols()
         self.zmq_url = f"tcp://127.0.0.1:{zmq_port}"
         
-        # Binance Connector
-        self.exchange = ccxt.binance({
-            'apiKey': settings.BINANCE_API_KEY,
-            'secret': settings.BINANCE_SECRET,
-            'enableRateLimit': True,
-            'options': {'defaultType': 'future'}
-        })
+        # CHANGED: Use native WebSocket client
+        # Demo mode is controlled by settings
+        demo_mode = getattr(settings, 'BINANCE_MODE', 'demo') == 'demo'
+        
+        self.websocket = BinanceWebSocket(
+            demo_mode=demo_mode,
+            on_message=self._handle_message,
+            on_error=self._handle_error,
+            on_close=self._handle_close
+        )
         
         # ZeroMQ Publisher
         self.zmq_context = zmq.asyncio.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.PUB)
-        # self.zmq_socket will be initialized in start()
+        self.zmq_socket = None
         
         # Metrics per symbol
         self.messages_sent = {symbol: 0 for symbol in self.symbols}
@@ -77,7 +82,7 @@ class MultiSymbolFeedHandler:
     async def start(self):
         try:
             print("\n" + "=" * 60)
-            print("🚀 MULTI-SYMBOL FEED HANDLER")
+            print("MULTI-SYMBOL FEED HANDLER (NATIVE BINANCE API)")
             print("=" * 60)
             print(f"Symbols: {self.symbols}")
             print(f"ZMQ URL: {self.zmq_url}")
@@ -87,136 +92,106 @@ class MultiSymbolFeedHandler:
             # Setup ZeroMQ
             self.zmq_socket = self.zmq_context.socket(zmq.PUB)
             self.zmq_socket.bind(self.zmq_url)
-            print(f"✓ ZeroMQ bound to {self.zmq_url}\n")
+            print(f"[OK] ZeroMQ bound to {self.zmq_url}\n")
             
-            # SKIP load_markets() - CAUSA LOOP INFINITO
-            # Es opcional para watch_tickers, no lo necesitamos
-            print("STEP 2: Skipping load_markets (causes infinite loop)")
-            print("✓ Markets will load automatically on first watch_tickers call\n")
+            print("STEP 2: Preparing WebSocket streams...")
+            # Build stream names for all symbols
+            # CHANGED: Generate stream names using native format
+            streams = []
+            for symbol in self.symbols:
+                # Convert 'BTC/USDT' to 'btcusdt@ticker'
+                normalized = self.websocket.normalize_symbol(symbol)
+                
+                # Use ticker stream for real-time price updates
+                stream = self.websocket.ticker_stream(normalized)
+                streams.append(stream)
+                
+                print(f"  {symbol} -> {stream}")
             
-            print("STEP 3: Starting ticker stream...")
-            print(f"Watching tickers for: {self.symbols}\n")
-            # Start streaming
-            await self._stream_tickers()
+            print(f"\n[OK] Prepared {len(streams)} streams\n")
+            
+            print("STEP 3: Connecting to Binance WebSocket...")
+            print("Waiting for first tick from Binance...\n")
+            
+            # CHANGED: Connect using native WebSocket (combined streams)
+            await self.websocket.connect_combined_streams(streams)
+            
         except Exception as e:
-            print(f"❌ ERROR starting feed handler: {e}")
+            print(f"[ERROR] starting feed handler: {e}")
             logger.error(f"Error starting feed handler: {e}", exc_info=True)
-        
     
-    async def _stream_tickers(self):
+    async def _handle_message(self, data: Dict[str, Any]):
         """
-        Stream ticker updates for all symbols with auto-recovery.
+        Handle incoming WebSocket message.
         
-        Uses ccxt's watch_tickers (WebSocket) for real-time data.
-        Automatically reconnects if connection is lost.
+        CHANGED: Parse native Binance ticker format instead of ccxt format
+        
+        Args:
+            data: Raw message from Binance WebSocket
         """
-        print("📡 Entering _stream_tickers loop...")
+        try:
+            # Get event type
+            event_type = data.get('e')
+            
+            if event_type == '24hrTicker':
+                # 24hr Ticker Stream
+                # Convert Binance ticker to our normalized format
+                symbol_raw = data.get('s', '')  # 'BTCUSDT'
+                
+                # Convert back to 'BTC/USDT' format
+                # Assume all symbols end with 'USDT'
+                if symbol_raw.endswith('USDT'):
+                    base = symbol_raw[:-4]  # Remove 'USDT'
+                    symbol = f"{base}/USDT"
+                else:
+                    symbol = symbol_raw
+                
+                # Check if this symbol is in our watchlist
+                if symbol not in self.symbols:
+                    return
+                
+                # Normalize ticker data
+                normalized = {
+                    'symbol': symbol,
+                    'timestamp': data.get('E'),  # Event time
+                    'datetime': datetime.fromtimestamp(data.get('E', 0) / 1000).isoformat(),
+                    'bid': float(data.get('b', 0)),  # Best bid price
+                    'ask': float(data.get('a', 0)),  # Best ask price
+                    'last': float(data.get('c', 0)),  # Last price
+                    'volume': float(data.get('v', 0)),  # Total traded base asset volume
+                    'high': float(data.get('h', 0)),  # High price
+                    'low': float(data.get('l', 0)),  # Low price
+                    'change_percent': float(data.get('P', 0))  # Price change percent
+                }
+                
+                # Publish to ZeroMQ
+                await self._publish(symbol, normalized)
+                
+                # Track metrics
+                self.messages_sent[symbol] += 1
+                
+                # Log periodically
+                total_messages = sum(self.messages_sent.values())
+                if total_messages > 0 and total_messages % 20 == 0:
+                    print(f"\n[STATS] Published {total_messages} total messages")
+                    for sym, count in self.messages_sent.items():
+                        print(f"   {sym}: {count} msgs")
+                    print()
+            
+            else:
+                # Log unknown event types
+                logger.debug(f"Unknown event type: {event_type}")
         
-        reconnect_count = 0
-        max_reconnects = 10
-        
-        while reconnect_count < max_reconnects:
-            try:
-                msg_count = 0
-                print(f"🔄 Starting watch_tickers for {len(self.symbols)} symbols...")
-                print("Waiting for first tick from Binance...\n")
-                
-                while True:
-                    try:
-                        # Watch ALL symbols at once with 90s timeout
-                        tickers = await asyncio.wait_for(
-                            self.exchange.watch_tickers(self.symbols),
-                            timeout=90  # If no data for 90s, reconnect
-                        )
-                        
-                        # Reset reconnect counter on successful receive
-                        reconnect_count = 0
-                        
-                        print(f"✓ Received {len(tickers)} ticker updates")
-                        
-                        # Publish each ticker
-                        published_count = 0
-                        for symbol, ticker in tickers.items():
-                            # Normalize symbol: remove :USDT suffix (Futures format)
-                            normalized_symbol = symbol.split(':')[0]  # 'BTC/USDT:USDT' -> 'BTC/USDT'
-                            
-                            print(f"   {symbol} -> {normalized_symbol} ... match? {normalized_symbol in self.symbols}")
-                            
-                            if normalized_symbol in self.symbols:
-                                # Normalize data before publishing
-                                normalized_data = self._normalize_ticker(ticker)
-                                # Publish with NORMALIZED symbol name
-                                await self._publish(normalized_symbol, normalized_data)
-                                msg_count += 1
-                                published_count += 1
-                                
-                                # Track per-symbol metrics
-                                if normalized_symbol not in self.messages_sent:
-                                    self.messages_sent[normalized_symbol] = 0
-                                self.messages_sent[normalized_symbol] += 1
-                        
-                        print(f"   ✅ Published: {published_count}/{len(tickers)}\n")
-                        
-                        # Log stats every 10 messages
-                        if msg_count > 0 and msg_count % 10 == 0:
-                            print(f"\n📊 Published {msg_count} total messages")
-                            for symbol, count in self.messages_sent.items():
-                                print(f"   {symbol}: {count} msgs")
-                            print()
-                    
-                    except asyncio.TimeoutError:
-                        print(f"⚠️ No data for 90 seconds - reconnecting...")
-                        logger.warning("Feed handler timeout - reconnecting to Binance")
-                        raise  # Trigger reconnection
-                
-            except Exception as e:
-                reconnect_count += 1
-                print(f"❌ ERROR in ticker stream: {e}")
-                print(f"🔄 Reconnecting... (attempt {reconnect_count}/{max_reconnects})")
-                logger.error(f"Error in ticker stream: {e}", exc_info=True)
-                
-                # Close and recreate exchange connection
-                try:
-                    await self.exchange.close()
-                except:
-                    pass
-                
-                # Wait before reconnecting
-                await asyncio.sleep(5)
-                
-                # Recreate exchange
-                self.exchange = ccxt.binance({
-                    'apiKey': settings.BINANCE_API_KEY,
-                    'secret': settings.BINANCE_SECRET,
-                    'enableRateLimit': True,
-                    'options': {'defaultType': 'future'}
-                })
-                
-                print("✓ Exchange connection recreated\n")
-        
-        print(f"❌ Max reconnection attempts ({max_reconnects}) reached - stopping")
-        await self.close()
+        except Exception as e:
+            logger.error(f"Error handling message: {e}", exc_info=True)
     
-    def _normalize_ticker(self, ticker: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize CCXT ticker to internal format."""
-        normalized = {
-            'symbol': ticker.get('symbol', 'UNKNOWN'),
-            'timestamp': ticker.get('timestamp'),
-            'datetime': ticker.get('datetime'),
-            'bid': ticker.get('bid'),
-            'ask': ticker.get('ask'),
-            'last': ticker.get('last'),
-            'volume': ticker.get('baseVolume'),
-            'high': ticker.get('high'),
-            'low': ticker.get('low'),
-            'change_percent': ticker.get('percentage')
-        }
-        
-        # Log if critical fields are missing
-        if not normalized['last']:
-            logger.warning(f"Missing 'last' price in ticker: {ticker}")
-        
-        return normalized
+    async def _handle_error(self, error: Exception):
+        """Handle WebSocket errors."""
+        logger.error(f"WebSocket error: {error}")
+    
+    async def _handle_close(self):
+        """Handle WebSocket close."""
+        logger.warning("WebSocket connection closed")
     
     async def _publish(self, symbol: str, data: Dict[str, Any]):
         """
@@ -242,8 +217,9 @@ class MultiSymbolFeedHandler:
     async def close(self):
         """Cleanup resources."""
         logger.info("Closing connections...")
-        await self.exchange.close()
-        self.zmq_socket.close()
+        await self.websocket.close()
+        if self.zmq_socket:
+            self.zmq_socket.close()
         self.zmq_context.term()
         logger.info("Feed Handler stopped")
 
@@ -260,4 +236,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Feed Handler stopped by user")
-

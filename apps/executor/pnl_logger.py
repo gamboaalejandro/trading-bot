@@ -85,7 +85,7 @@ class PnLLogger:
         
         self.logger.info("")
         self.logger.info("=" * 80)
-        self.logger.info(f"🔵 TRADE ENTRY: {symbol}")
+        self.logger.info(f" TRADE ENTRY: {symbol}")
         self.logger.info("=" * 80)
         self.logger.info(f"Order ID:      {order_id}")
         self.logger.info(f"Side:          {side.upper()}")
@@ -121,13 +121,13 @@ class PnLLogger:
         """
         # Determine emoji based on P&L
         if pnl > 0:
-            emoji = "🟢 PROFIT"
+            emoji = "[PROFIT]"
             result = "WIN"
         elif pnl < 0:
-            emoji = "🔴 LOSS"
+            emoji = " LOSS"
             result = "LOSS"
         else:
-            emoji = "⚪ BREAK EVEN"
+            emoji = " BREAK EVEN"
             result = "NEUTRAL"
         
         # Track daily P&L
@@ -247,4 +247,4 @@ if __name__ == "__main__":
         timestamp=datetime.now()
     )
     
-    print("\n✅ P&L Logger test completed. Check logs/pnl_tracker.log")
+    print("\n P&L Logger test completed. Check logs/pnl_tracker.log")

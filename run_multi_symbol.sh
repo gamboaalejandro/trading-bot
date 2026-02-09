@@ -21,7 +21,7 @@ echo "========================================"
 echo
 
 # Activate virtual environment
-source venv/bin/activate
+# source venv/Scripts/activate
 
 # Run orchestrator
 python3 orchestrator.py

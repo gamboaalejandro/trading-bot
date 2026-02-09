@@ -5,7 +5,7 @@ echo "╔═══════════════════════�
 echo "║         Trading Bot - DRY RUN Mode                         ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "⚙️  Configuración:"
+echo "️  Configuración:"
 echo "   - Modo: SIMULACIÓN (DRY_RUN=true)"
 echo "   - Testnet: Sí (consultas de balance/precios)"
 echo "   - Órdenes: NO se ejecutarán"
@@ -15,7 +15,7 @@ echo "   - Señales de estrategias (Momentum, Mean Reversion)"
 echo "   - Cálculos de position sizing"
 echo "   - Operaciones que SE HABRÍAN ejecutado"
 echo ""
-echo "🛑  Para detener: Presiona Ctrl+C"
+echo "  Para detener: Presiona Ctrl+C"
 echo "════════════════════════════════════════════════════════════"
 
 # Obtener directorio del proyecto (donde está este script)

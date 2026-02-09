@@ -1,4 +1,4 @@
-# 🔴 DIAGNÓSTICO: Feed Handler Bloqueado
+#  DIAGNÓSTICO: Feed Handler Bloqueado
 
 ## Problema
 
@@ -37,18 +37,18 @@ self.zmq_socket.bind(self.zmq_url)
 
 ---
 
-## ✅ Solución Aplicada
+##  Solución Aplicada
 
 Agregué logging DETALLADO en cada paso:
 
 ```python
 logger.info("STEP 1: Setting up ZeroMQ...")
 # ...
-logger.info("✓ ZeroMQ bound to {self.zmq_url}")
+logger.info(" ZeroMQ bound to {self.zmq_url}")
 
 logger.info("STEP 2: Initializing exchange...")
 # ...
-logger.info(f"✓ Loaded {len(markets)} markets from Binance")
+logger.info(f" Loaded {len(markets)} markets from Binance")
 
 logger.info("STEP 3: Starting ticker stream...")
 logger.info(f"Watching tickers for: {self.symbols}")
@@ -56,7 +56,7 @@ logger.info(f"Watching tickers for: {self.symbols}")
 
 ---
 
-## 🔍 Cómo Diagnosticar
+##  Cómo Diagnosticar
 
 **Reinicia el feed handler y observa DÓNDE se detiene el log:**
 
@@ -81,7 +81,7 @@ kill -9 <PID>
 ### **Caso B: Se detiene en STEP 2**
 ```
 STEP 1: Setting up ZeroMQ...
-✓ ZeroMQ bound...
+ ZeroMQ bound...
 STEP 2: Initializing exchange...
 [STUCK]
 ```
@@ -94,9 +94,9 @@ STEP 2: Initializing exchange...
 ### **Caso C: Se detiene en STEP 3**
 ```
 STEP 1: Setting up ZeroMQ...
-✓ ZeroMQ bound...
+ ZeroMQ bound...
 STEP 2: Initializing exchange...
-✓ Loaded 2000 markets...
+ Loaded 2000 markets...
 STEP 3: Starting ticker stream...
 Watching tickers for: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 [STUCK]
@@ -116,7 +116,7 @@ Watching tickers for: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
 ---
 
-## 🎯 Prueba Ahora
+##  Prueba Ahora
 
 1. **Detén** el feed handler actual (Ctrl+C)
 
@@ -131,7 +131,7 @@ python3 -m apps.ingestion.feed_handler_daemon
 
 ---
 
-## 🔧 Workaround Temporal
+##  Workaround Temporal
 
 Si `watch_tickers()` está bloqueado, usar alternativa:
 

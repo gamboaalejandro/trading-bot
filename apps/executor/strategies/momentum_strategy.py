@@ -126,7 +126,7 @@ class MomentumStrategy(BaseStrategy):
         crossover = self.detect_crossover(fast_ma, slow_ma)
         
         # DEBUG: Log exact values
-        self.logger.debug(f"📊 RSI={current_rsi:.1f}, FastMA={fast_ma:.2f}, SlowMA={slow_ma:.2f}, Cross={crossover}")
+        self.logger.debug(f" RSI={current_rsi:.1f}, FastMA={fast_ma:.2f}, SlowMA={slow_ma:.2f}, Cross={crossover}")
         
         # Calculate confidence based on RSI and MA separation
         ma_separation = abs(fast_ma - slow_ma) / slow_ma  #Percentage separation

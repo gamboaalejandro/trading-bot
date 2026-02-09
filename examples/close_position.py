@@ -25,7 +25,7 @@ async def close_positions(symbol=None):
             print(f"Cerrando posición en {symbol}...")
             result = await connector.close_position(symbol)
             if result:
-                print(f"✅ Posición cerrada: {result['id']}")
+                print(f" Posición cerrada: {result['id']}")
             else:
                 print(f"ℹ️  No hay posición abierta en {symbol}")
         else:
@@ -44,11 +44,11 @@ async def close_positions(symbol=None):
                 print(f"\nCerrando {symbol}...")
                 result = await connector.close_position(symbol)
                 if result:
-                    print(f"  ✅ Cerrada: {result['id']}")
+                    print(f"   Cerrada: {result['id']}")
         
         # Mostrar balance final
         balance = await connector.get_usdt_balance()
-        print(f"\n💰 Balance final: ${balance:,.2f} USDT")
+        print(f"\n Balance final: ${balance:,.2f} USDT")
         
     finally:
         await connector.close()

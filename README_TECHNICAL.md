@@ -1,10 +1,10 @@
-# 📚 Documentación Técnica: Sistema Multi-Par
+#  Documentación Técnica: Sistema Multi-Par
 
 Guía técnica para desarrolladores del sistema de trading multi-par.
 
 ---
 
-## 📐 Arquitectura General
+##  Arquitectura General
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -30,7 +30,7 @@ Guía técnica para desarrolladores del sistema de trading multi-par.
 
 ---
 
-## 🔧 Componentes Clave
+##  Componentes Clave
 
 ### **1. Safe List** ([`config/safe_list.py`](config/safe_list.py))
 
@@ -159,7 +159,7 @@ position_size = max_risk_usd / (ATR × multiplier)
 
 ---
 
-## 🔄 Flow de Datos Completo
+##  Flow de Datos Completo
 
 ```
 1. INGESTA
@@ -194,7 +194,7 @@ position_size = max_risk_usd / (ATR × multiplier)
 
 ---
 
-## ➕ Cómo Agregar un Nuevo Par
+##  Cómo Agregar un Nuevo Par
 
 ### **Paso 1: Agregar a Safe List**
 
@@ -228,7 +228,7 @@ Editar [`config/safe_list.py`](config/safe_list.py):
 
 ---
 
-## ➕ Cómo Agregar Nueva Estrategia
+##  Cómo Agregar Nueva Estrategia
 
 ### **Paso 1: Crear Strategy Class**
 
@@ -306,7 +306,7 @@ __all__ = [
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### **Error: "No module named 'zmq'"**
 
@@ -349,7 +349,7 @@ risk_config = PortfolioRiskConfig(
 
 ---
 
-## 🧪 Testing
+##  Testing
 
 ### **Test 1: Safe List**
 ```bash
@@ -381,7 +381,7 @@ python3 -m apps.executor.multi_symbol_engine
 
 ---
 
-## 🔮 Extensiones Futuras
+##  Extensiones Futuras
 
 ### **1. Database Persistence**
 
@@ -443,16 +443,16 @@ class MLInterface:
 
 ---
 
-## 📊 Métricas y Observabilidad
+##  Métricas y Observabilidad
 
 ### **Logs Importantes:**
 
 ```python
 logger.info(f"Trading Profile: {self.profile.name}")
-logger.info(f"✓ {symbol}: {strategy_type} (params)")
-logger.info(f"🔔 {symbol} - Signal: {signal_type} (confidence: {conf}%)")
-logger.info(f"✓ Portfolio approved (exposure: ${exp}/${max})")
-logger.info(f"❌ {symbol} - Portfolio REJECTED: {reason}")
+logger.info(f" {symbol}: {strategy_type} (params)")
+logger.info(f" {symbol} - Signal: {signal_type} (confidence: {conf}%)")
+logger.info(f" Portfolio approved (exposure: ${exp}/${max})")
+logger.info(f" {symbol} - Portfolio REJECTED: {reason}")
 ```
 
 ### **Métricas por símbolo:**
@@ -467,7 +467,7 @@ self.messages_sent = {
 
 ---
 
-## 🏗️ Estructura de Código
+## ️ Estructura de Código
 
 ### **Naming Conventions:**
 
@@ -492,7 +492,7 @@ def fetch_data(self):
 
 ---
 
-## 📖 Referencias
+##  Referencias
 
 - [Binance API Docs](https://binance-docs.github.io/apidocs/spot/en/)
 - [CCXT Documentation](https://docs.ccxt.com/en/latest/)

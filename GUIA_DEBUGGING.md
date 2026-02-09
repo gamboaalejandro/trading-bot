@@ -1,4 +1,4 @@
-# 🔍 Cómo Ver Prints y Logs del Trading Bot
+#  Cómo Ver Prints y Logs del Trading Bot
 
 ## Diferencia entre print() y logger
 
@@ -7,19 +7,19 @@
 
 ---
 
-## ✅ Opción 1: Usar ver_logs.sh (Actualizado)
+##  Opción 1: Usar ver_logs.sh (Actualizado)
 
 ```bash
 ./ver_logs.sh
 ```
 
 Ahora muestra **ambos** (stdout + stderr), por lo que verás:
-- ✅ Tu `print("Dry Run: ", dry_run)`
-- ✅ Todos los logs del logger
+-  Tu `print("Dry Run: ", dry_run)`
+-  Todos los logs del logger
 
 ---
 
-## ✅ Opción 2: Ejecutar Directamente
+##  Opción 2: Ejecutar Directamente
 
 Si ejecutas el engine directamente (sin orchestrator), verás todo en la terminal:
 
@@ -35,7 +35,7 @@ Aquí **SÍ** verás los prints directamente en la terminal.
 
 ---
 
-## ✅ Opción 3: Ver Manualmente
+##  Opción 3: Ver Manualmente
 
 ```bash
 # Obtener PID del engine
@@ -53,7 +53,7 @@ tail -f /proc/$ENGINE_PID/fd/1 /proc/$ENGINE_PID/fd/2
 
 ---
 
-## 🎯 Recomendación para Ver Todo
+##  Recomendación para Ver Todo
 
 **Mejor forma:**
 ```bash
@@ -71,7 +71,7 @@ Dry Run:  False
 
 ---
 
-## 💡 Tip para Debugging
+##  Tip para Debugging
 
 Si quieres ver prints en tiempo real durante desarrollo:
 
@@ -81,11 +81,11 @@ Si quieres ver prints en tiempo real durante desarrollo:
 print("Dry Run: ", dry_run)
 
 # Mejor
-logger.info(f"🔵 Dry Run Mode: {dry_run}")
+logger.info(f" Dry Run Mode: {dry_run}")
 ```
 
 **Ventajas:**
-- ✅ Siempre visible en logs
-- ✅ Incluye timestamp
-- ✅ Incluye nivel (INFO, ERROR, etc.)
-- ✅ Más profesional
+-  Siempre visible en logs
+-  Incluye timestamp
+-  Incluye nivel (INFO, ERROR, etc.)
+-  Más profesional

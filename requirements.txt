@@ -1,7 +1,9 @@
 # Dependencias del Sistema de Trading
 
-ccxt>=4.0.0
-ccxtpro>=1.0.0
+# Native Binance API clients (replacing ccxt)
+requests>=2.31.0
+websockets>=12.0
+
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
@@ -12,3 +14,5 @@ numpy>=1.24.0
 ta>=0.11.0  # Technical Analysis library
 asyncio
 aiohttp>=3.9.0
+pyyaml>=6.0
+msgpack>=1.0.0

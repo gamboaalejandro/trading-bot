@@ -27,11 +27,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Get Python from virtual environment
-VENV_PYTHON = Path(__file__).parent / "venv" / "bin" / "python3"
+VENV_PYTHON = Path(__file__).parent / "venv" / "Scripts" / "python.exe"
 if not VENV_PYTHON.exists():
-    logger.error(f"Virtual environment not found at {VENV_PYTHON}")
-    logger.error("Please run: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt")
-    sys.exit(1)
+    # Try alternative path for Linux/Mac
+    VENV_PYTHON = Path(__file__).parent / "venv" / "bin" / "python3"
+    if not VENV_PYTHON.exists():
+        logger.error(f"Virtual environment not found")
+        logger.error("Please run: python -m venv venv && pip install -r requirements.txt")
+        sys.exit(1)
 
 PYTHON_CMD = str(VENV_PYTHON)
 
@@ -107,8 +110,8 @@ async def main():
     logger.info("="*60)
     logger.info("ALL SERVICES RUNNING")
     logger.info("="*60)
-    logger.info("✓ Multi-Symbol Feed Handler (ZeroMQ Publisher)")
-    logger.info("✓ Multi-Symbol Trading Engine (ZeroMQ Subscriber)")
+    logger.info(" Multi-Symbol Feed Handler (ZeroMQ Publisher)")
+    logger.info(" Multi-Symbol Trading Engine (ZeroMQ Subscriber)")
     logger.info("")
     logger.info("Trading pairs: BTC/USDT, ETH/USDT, SOL/USDT")
     logger.info("")

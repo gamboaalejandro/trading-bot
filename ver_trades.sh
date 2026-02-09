@@ -3,24 +3,24 @@
 # Script para ver historial de trades del bot
 
 echo "════════════════════════════════════════════════════════════"
-echo "📊 HISTORIAL DE TRADES - Trading Bot"
+echo " HISTORIAL DE TRADES - Trading Bot"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
 LOG_FILE="logs/trading_engine.log"
 
 if [ ! -f "$LOG_FILE" ]; then
-    echo "❌ No se encontró archivo de log: $LOG_FILE"
+    echo " No se encontró archivo de log: $LOG_FILE"
     echo "   El trading engine aún no ha generado logs"
     exit 1
 fi
 
-echo "🔔 SEÑALES GENERADAS:"
+echo " SEÑALES GENERADAS:"
 echo "════════════════════════════════════════════════════════════"
-grep "🔔" "$LOG_FILE" | tail -20
+grep "" "$LOG_FILE" | tail -20
 echo ""
 
-echo "💰 TRADES EJECUTADOS (Simulados en DRY_RUN):"
+echo " TRADES EJECUTADOS (Simulados en DRY_RUN):"
 echo "════════════════════════════════════════════════════════════"
 
 # Buscar bloques completos de TRADE EXECUTION
@@ -28,13 +28,13 @@ awk '/TRADE EXECUTION:/{flag=1} flag; /^=+$/ && flag{print ""; flag=0}' "$LOG_FI
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
-echo "📈 ESTADÍSTICAS:"
+echo " ESTADÍSTICAS:"
 echo "════════════════════════════════════════════════════════════"
 
-TOTAL_SIGNALS=$(grep -c "🔔" "$LOG_FILE")
+TOTAL_SIGNALS=$(grep -c "" "$LOG_FILE")
 TOTAL_TRADES=$(grep -c "TRADE EXECUTION:" "$LOG_FILE")
-BUY_SIGNALS=$(grep "🔔.*BUY" "$LOG_FILE" | wc -l)
-SELL_SIGNALS=$(grep "🔔.*SELL" "$LOG_FILE" | wc -l)
+BUY_SIGNALS=$(grep ".*BUY" "$LOG_FILE" | wc -l)
+SELL_SIGNALS=$(grep ".*SELL" "$LOG_FILE" | wc -l)
 
 echo "Total Señales Generadas: $TOTAL_SIGNALS"
 echo "  - BUY: $BUY_SIGNALS"
