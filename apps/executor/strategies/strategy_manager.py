@@ -31,6 +31,7 @@ class StrategyManager:
         self.strategies: List[BaseStrategy] = []
         self.combination_method = combination_method
         self.strategy_stats: Dict[str, Dict] = {}
+        self._in_downtrend = False  # Trend filter state
     
     def register_strategy(self, strategy: BaseStrategy):
         """
@@ -103,6 +104,32 @@ class StrategyManager:
         Returns:
             Combined signal or None
         """
+        # ========================================
+        # EMA 200 TREND FILTER (CRITICAL FOR SPOT)
+        # ========================================
+        # In Spot mode, we can only go LONG.
+        # Buying during downtrends = bag holding.
+        # Block ALL BUY signals when price < EMA 200.
+        
+        if len(df) >= 200:
+            ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
+            current_price = df['close'].iloc[-1]
+            
+            if current_price < ema_200:
+                logger.info(
+                    f"[TREND FILTER] Price ${current_price:.2f} < EMA200 ${ema_200:.2f} "
+                    f"- BLOCKING BUY signals (downtrend detected)"
+                )
+                # Still check for signals but will veto BUYs later
+                self._in_downtrend = True
+            else:
+                self._in_downtrend = False
+                logger.debug(f"[TREND FILTER] Price ${current_price:.2f} > EMA200 ${ema_200:.2f} ✅")
+        else:
+            # Not enough data for EMA 200, be conservative
+            self._in_downtrend = False
+            logger.debug(f"[TREND FILTER] Insufficient data for EMA 200 ({len(df)} candles)")
+        
         all_signals = await self.get_all_signals(df)
         
         # Filter out None and HOLD signals
@@ -113,6 +140,28 @@ class StrategyManager:
         
         if not actionable_signals:
             logger.debug("No actionable signals from any strategy")
+            return None
+        
+        # ========================================
+        # APPLY TREND FILTER TO BUY SIGNALS
+        # ========================================
+        if self._in_downtrend:
+            # Remove BUY signals in downtrend
+            buy_signals_filtered = {
+                name: sig for name, sig in actionable_signals.items()
+                if sig.signal_type == SignalType.BUY
+            }
+            if buy_signals_filtered:
+                logger.info(
+                    f"[TREND FILTER] Vetoed {len(buy_signals_filtered)} BUY signal(s) due to downtrend"
+                )
+                # Keep only SELL signals
+                actionable_signals = {
+                    name: sig for name, sig in actionable_signals.items()
+                    if sig.signal_type != SignalType.BUY
+                }
+        
+        if not actionable_signals:
             return None
         
         # Apply combination method

@@ -362,7 +362,32 @@ class MultiSymbolEngine:
                 logger.debug(f"  Price: ${latest_close:,.2f}")
                 logger.debug(f"  Min Required: {self.profile.min_confidence:.2%}")
                 
-                # Check if actionable
+                # ========================================
+                # SELL SIGNAL → CLOSE LONG POSITION
+                # ========================================
+                # In Spot mode, SELL signals should close LONG positions
+                # NOT open SHORT positions (which are impossible in Spot)
+                if signal.signal_type.value == 'sell' and symbol in self.open_positions:
+                    existing_position = self.open_positions[symbol]
+                    
+                    # Only close if it's a LONG position
+                    if existing_position['side'] == 'buy':
+                        logger.info(
+                            f"[EXIT SIGNAL] {symbol} - SELL signal received, closing LONG position "
+                            f"(confidence: {signal.confidence:.2%})"
+                        )
+                        
+                        # Get current price for exit
+                        ticker = await self.connector.get_ticker(symbol)
+                        if ticker and 'last' in ticker:
+                            current_price = ticker['last']
+                            await self.close_position(symbol, 'exit_signal', current_price)
+                        return  # Exit after closing
+                    else:
+                        logger.debug(f"{symbol}: SELL signal but position is SHORT (already selling)")
+                        return
+                
+                # Check if actionable (for opening new positions)
                 if signal.is_actionable():
                     logger.info(
                         f"[SIGNAL] {symbol} - Signal: {signal.signal_type.value.upper()} "
@@ -556,9 +581,14 @@ class MultiSymbolEngine:
         """
         Continuously monitor open positions for Take Profit/Stop Loss.
         
+        NEW FEATURES:
+        - Trailing Stop Loss (breakeven at +3%, trailing at +5%)
+        - Stagnation Exit (close positions >24h with <1% profit)
+        
         Checks every 2 seconds if positions should be closed.
         """
         logger.info("[MONITOR] Position monitoring started")
+        logger.info("[MONITOR] Features: Trailing SL, Stagnation Exit")
         
         try:
             while self.running:
@@ -576,24 +606,75 @@ class MultiSymbolEngine:
                             continue
                         
                         current_price = ticker['last']
+                        entry_price = position['entry_price']
                         take_profit = position['take_profit']
                         stop_loss = position['stop_loss']
                         side = position['side']
                         
+                        # ========================================
+                        # TRAILING STOP LOSS (LONG POSITIONS)
+                        # ========================================
+                        if side == 'buy':
+                            profit_pct = (current_price - entry_price) / entry_price
+                            
+                            # Trailing at +5% profit (2% below current)
+                            if profit_pct >= 0.05:
+                                trailing_sl = current_price * 0.98  # 2% below
+                                if trailing_sl > stop_loss:
+                                    position['stop_loss'] = trailing_sl
+                                    logger.info(
+                                        f"[TRAILING SL] {symbol} updated to ${trailing_sl:.2f} "
+                                        f"(trailing 2%, profit: {profit_pct:.2%})"
+                                    )
+                                    stop_loss = trailing_sl  # Update for checks below
+                            
+                            # Breakeven at +3% profit
+                            elif profit_pct >= 0.03 and stop_loss < entry_price:
+                                breakeven_sl = entry_price
+                                position['stop_loss'] = breakeven_sl
+                                logger.info(
+                                    f"[BREAKEVEN SL] {symbol} updated to ${breakeven_sl:.2f} "
+                                    f"(profit: {profit_pct:.2%})"
+                                )
+                                stop_loss = breakeven_sl
+                        
+                        # ========================================
+                        # STAGNATION EXIT (CAPITAL ROTATION)
+                        # ========================================
+                        entry_time = datetime.fromisoformat(position['timestamp'])
+                        hours_open = (datetime.now() - entry_time).total_seconds() / 3600
+                        
+                        if side == 'buy':
+                            profit_pct = (current_price - entry_price) / entry_price
+                        else:
+                            profit_pct = (entry_price - current_price) / entry_price
+                        
+                        # Close stagnant positions (>24h, <1% profit)
+                        if hours_open > 24 and profit_pct < 0.01:
+                            logger.info(
+                                f"[STAGNATION EXIT] {symbol} - Open {hours_open:.1f}h, "
+                                f"Profit {profit_pct:.2%} < 1% - Rotating capital"
+                            )
+                            await self.close_position(symbol, 'stagnation', current_price)
+                            continue  # Skip TP/SL checks (already closed)
+                        
+                        # ========================================
+                        # STANDARD TP/SL CHECKS
+                        # ========================================
                         # Check Take Profit
                         if side == 'buy' and current_price >= take_profit:
-                            logger.info(f" {symbol} - TAKE PROFIT HIT!")
+                            logger.info(f"✅ {symbol} - TAKE PROFIT HIT!")
                             await self.close_position(symbol, 'take_profit', current_price)
                         elif side == 'sell' and current_price <= take_profit:
-                            logger.info(f" {symbol} - TAKE PROFIT HIT!")
+                            logger.info(f"✅ {symbol} - TAKE PROFIT HIT!")
                             await self.close_position(symbol, 'take_profit', current_price)
                         
                         # Check Stop Loss
                         elif side == 'buy' and current_price <= stop_loss:
-                            logger.info(f" {symbol} - STOP LOSS HIT!")
+                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
                             await self.close_position(symbol, 'stop_loss', current_price)
                         elif side == 'sell' and current_price >= stop_loss:
-                            logger.info(f" {symbol} - STOP LOSS HIT!")
+                            logger.info(f"🛑 {symbol} - STOP LOSS HIT!")
                             await self.close_position(symbol, 'stop_loss', current_price)
                     
                     except Exception as e:
