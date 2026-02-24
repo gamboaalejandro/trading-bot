@@ -27,11 +27,11 @@ SAFE_LIST = {
         "max_daily_trades": 10,
         
         "params": {
-            "rsi_period": 14,
+            "rsi_period": 10, # Optimized: 10 (faster reaction)
             "bb_period": 20,
-            "bb_std": 2.0,    # Desviación estándar normal
-            "min_atr": 100,   # Filtro de volatilidad absoluta
-            "oversold": 30,   # Compra cuando RSI < 30
+            "bb_std": 2.8,    # Optimized: 2.8 (capture only extreme dips)
+            "min_atr": 100,
+            "oversold": 30,
             "overbought": 70
         }
     },
@@ -67,12 +67,12 @@ SAFE_LIST = {
         
         "params": {
             "rsi_period": 14,
-            "ma_fast": 9,
-            "ma_slow": 21,
-            "bb_std": 2.5,    # Bandas anchas para aguantar "mechas"
+            "ma_fast": 10,    # Optimized
+            "ma_slow": 200,   # Optimized: Trend Filter (Golden Cross logic)
+            "bb_std": 2.5,
             "min_atr": 0.5,
-            "oversold": 35,   # En tendencias fuertes, 30 es difícil de tocar
-            "overbought": 75  # Deja correr la ganancia más tiempo
+            "oversold": 35,
+            "overbought": 75
         }
     },
 
@@ -126,12 +126,13 @@ SAFE_LIST = {
         "max_daily_trades": 3,
         
         "params": {
-            "rsi_period": 14,
-            "bb_period": 20,
-            "bb_std": 2.5,    # ¡Muy ancho! Para ignorar el ruido/mechas
+            "rsi_period": 10, # Optimized
+            "ma_fast": 20,    # Optimized
+            "ma_slow": 100,   # Optimized: Mid-term trend
+            "bb_std": 2.5,
             "min_atr": 0.001,
-            "oversold": 30,   # Solo compra si está MUY muerto
-            "overbought": 85  # Solo vende si está en la luna
+            "oversold": 30,
+            "overbought": 85
         }
     }
 }
