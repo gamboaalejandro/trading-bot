@@ -62,7 +62,7 @@ SAFE_LIST = {
         "strategy": "momentum", # Sigue la tendencia fuerte
         "description": "Solana - El motor de ganancias rápidas",
         
-        "max_position_size_usd": 500, # Menos capital que BTC por riesgo
+        "max_position_size_usd": 700, # Menos capital que BTC por riesgo
         "max_daily_trades": 5,
         
         "params": {
@@ -82,7 +82,7 @@ SAFE_LIST = {
         "strategy": "mean_reversion",
         "description": "Binance Coin - Híbrido Estabilidad/Volatilidad",
         
-        "max_position_size_usd": 600,
+        "max_position_size_usd": 800,
         "max_daily_trades": 8,
         
         "params": {
@@ -128,9 +128,9 @@ SAFE_LIST = {
         "params": {
             "rsi_period": 14,
             "bb_period": 20,
-            "bb_std": 3.0,    # ¡Muy ancho! Para ignorar el ruido/mechas
+            "bb_std": 2.5,    # ¡Muy ancho! Para ignorar el ruido/mechas
             "min_atr": 0.001,
-            "oversold": 25,   # Solo compra si está MUY muerto
+            "oversold": 30,   # Solo compra si está MUY muerto
             "overbought": 85  # Solo vende si está en la luna
         }
     }
