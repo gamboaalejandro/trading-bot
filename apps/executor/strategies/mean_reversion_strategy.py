@@ -100,8 +100,15 @@ class MeanReversionStrategy(BaseStrategy):
         
         # Calculate price position within bands (0 = lower band, 1 = upper band)
         bb_width = bb_upper - bb_lower
-        if bb_width == 0:
-            self.logger.warning("Bollinger Bands have zero width")
+
+        # Volatility Squeeze Protection
+        # If bands are too tight (width < 1% of price), volatility is too low for Mean Reversion
+        # Avoids trading in "dead" zones where a breakout might happen
+        min_width_pct = 0.01
+        width_pct = bb_width / bb_middle if bb_middle > 0 else 0
+
+        if bb_width == 0 or width_pct < min_width_pct:
+            self.logger.debug(f"Bollinger Bands too tight ({width_pct:.2%}). Skipping.")
             return None
         
         price_position = (current_price - bb_lower) / bb_width

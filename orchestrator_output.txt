@@ -1,0 +1,128 @@
+2026-02-24 20:39:01,832 - __main__ - INFO - ============================================================
+2026-02-24 20:39:01,832 - __main__ - INFO - MULTI-SYMBOL TRADING BOT ORCHESTRATOR
+2026-02-24 20:39:01,832 - __main__ - INFO - ============================================================
+2026-02-24 20:39:01,832 - __main__ - INFO - Starting services...
+2026-02-24 20:39:01,832 - __main__ - INFO -
+2026-02-24 20:39:01,832 - __main__ - INFO - Starting Multi-Symbol Feed Handler...
+2026-02-24 20:39:01,833 - __main__ - INFO - Multi-Symbol Feed Handler started (PID: 9585)
+2026-02-24 20:39:01,833 - __main__ - INFO - Waiting 3 seconds for feed handler to initialize...
+2026-02-24 20:39:04,836 - __main__ - INFO - Starting Multi-Symbol Trading Engine...
+2026-02-24 20:39:04,837 - __main__ - INFO - Multi-Symbol Trading Engine started (PID: 9615)
+2026-02-24 20:39:04,837 - __main__ - INFO -
+2026-02-24 20:39:04,837 - __main__ - INFO - ============================================================
+2026-02-24 20:39:04,837 - __main__ - INFO - ALL SERVICES RUNNING
+2026-02-24 20:39:04,837 - __main__ - INFO - ============================================================
+2026-02-24 20:39:04,837 - __main__ - INFO -  Multi-Symbol Feed Handler (ZeroMQ Publisher)
+2026-02-24 20:39:04,837 - __main__ - INFO -  Multi-Symbol Trading Engine (ZeroMQ Subscriber)
+2026-02-24 20:39:04,837 - __main__ - INFO -
+2026-02-24 20:39:04,837 - __main__ - INFO - Trading pairs: BTC/USDT, ETH/USDT, SOL/USDT
+2026-02-24 20:39:04,837 - __main__ - INFO -
+2026-02-24 20:39:04,837 - __main__ - INFO - Press Ctrl+C to stop all services
+2026-02-24 20:39:04,837 - __main__ - INFO - ============================================================
+2026-02-24 20:39:06,840 - __main__ - ERROR - Process 9615 died unexpectedly
+2026-02-24 20:39:06,840 - __main__ - ERROR - Stderr:
+2026-02-24 20:39:06,840 - __main__ - ERROR - 2026-02-24 20:39:05,591 - __main__ - INFO - ============================================================
+2026-02-24 20:39:05,591 - __main__ - INFO - MULTI-SYMBOL TRADING ENGINE
+2026-02-24 20:39:05,591 - __main__ - INFO - ============================================================
+2026-02-24 20:39:05,591 - __main__ - INFO - Symbols: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'AVAX/USDT', 'DOGE/USDT']
+2026-02-24 20:39:05,591 - __main__ - INFO - Dry Run: True
+2026-02-24 20:39:05,592 - __main__ - INFO - ============================================================
+2026-02-24 20:39:05,592 - __main__ - INFO - Trading Profile: Conservative
+2026-02-24 20:39:05,592 - __main__ - INFO - Combination Method: consensus
+2026-02-24 20:39:05,592 - __main__ - INFO - Min Confidence: 65%
+2026-02-24 20:39:05,592 - __main__ - INFO - Max Risk per Trade: 1.0%
+2026-02-24 20:39:05,592 - apps.executor.testnet_connector - INFO - Initializing SPOT DEMO MODE connector
+2026-02-24 20:39:05,592 - apps.executor.testnet_connector - INFO - Using API Key: ...
+2026-02-24 20:39:05,592 - core.binance_client - INFO - Binance Client initialized: DEMO MODE
+2026-02-24 20:39:05,592 - core.binance_client - INFO - Base URL: https://testnet.binance.vision
+2026-02-24 20:39:05,592 - apps.executor.testnet_connector - INFO -  Spot Demo Mode configured: demo-api.binance.com
+2026-02-24 20:39:05,592 - apps.executor.testnet_connector - INFO -  Using REAL market prices with virtual funds
+2026-02-24 20:39:05,592 - apps.executor.testnet_connector - INFO -  Strategy: Swing trading with wide TP/SL (3:1 R/R)
+2026-02-24 20:39:05,592 - apps.executor.account_manager - INFO - Account Manager initialized with $10000.00
+2026-02-24 20:39:05 | ================================================================================
+2026-02-24 20:39:05,593 - PnL_Tracker - INFO - ================================================================================
+2026-02-24 20:39:05 | P&L LOGGER INITIALIZED
+2026-02-24 20:39:05,593 - PnL_Tracker - INFO - P&L LOGGER INITIALIZED
+2026-02-24 20:39:05 | ================================================================================
+2026-02-24 20:39:05,593 - PnL_Tracker - INFO - ================================================================================
+2026-02-24 20:39:05,593 - __main__ - INFO - [OK] P&L Logger initialized
+2026-02-24 20:39:05,593 - __main__ - INFO -
+============================================================
+2026-02-24 20:39:05,593 - __main__ - INFO - INITIALIZING STRATEGIES
+2026-02-24 20:39:05,593 - __main__ - INFO - ============================================================
+2026-02-24 20:39:05,735 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:05,736 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:05,736 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: MeanRev-BTC/USDT
+2026-02-24 20:39:05,736 - __main__ - INFO - [OK] BTC/USDT: MeanReversion (BB_std=2.8)
+2026-02-24 20:39:05,928 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:05,930 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:05,930 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: MeanRev-ETH/USDT
+2026-02-24 20:39:05,930 - __main__ - INFO - [OK] ETH/USDT: MeanReversion (BB_std=2.2)
+2026-02-24 20:39:06,082 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:06,083 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:06,083 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: Momentum-SOL/USDT
+2026-02-24 20:39:06,084 - __main__ - INFO - [OK] SOL/USDT: Momentum (RSI=14)
+2026-02-24 20:39:06,218 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:06,220 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:06,220 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: MeanRev-BNB/USDT
+2026-02-24 20:39:06,220 - __main__ - INFO - [OK] BNB/USDT: MeanReversion (BB_std=2.3)
+2026-02-24 20:39:06,354 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:06,356 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:06,356 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: Momentum-AVAX/USDT
+2026-02-24 20:39:06,356 - __main__ - INFO - [OK] AVAX/USDT: Momentum (RSI=9)
+2026-02-24 20:39:06,494 - apps.ingestion.sentiment - INFO - Fear & Greed Index: 8 (Extreme Fear)
+2026-02-24 20:39:06,495 - apps.executor.strategies.strategy_manager - INFO - Sentiment Analysis Active (Multiplier: 0.9x)
+2026-02-24 20:39:06,495 - apps.executor.strategies.strategy_manager - INFO - Registered strategy: Momentum-DOGE/USDT
+2026-02-24 20:39:06,495 - __main__ - INFO - [OK] DOGE/USDT: Momentum (RSI=10)
+2026-02-24 20:39:06,495 - __main__ - INFO - ============================================================
+
+2026-02-24 20:39:06,496 - __main__ - INFO - Starting Multi-Symbol Trading Engine...
+2026-02-24 20:39:06,497 - __main__ - INFO - Subscribed to ZMQ feed: tcp://127.0.0.1:5555
+2026-02-24 20:39:06,497 - apps.executor.testnet_connector - INFO - Testing connection...
+2026-02-24 20:39:06,598 - core.binance_client - ERROR - Request failed: GET /api/v3/time - 451 Client Error:  for url: https://testnet.binance.vision/api/v3/time
+2026-02-24 20:39:06,598 - core.binance_client - ERROR - Response: {
+  "code": 0,
+  "msg": "Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms. Please contact customer service if you believe you received this message in error."
+}
+2026-02-24 20:39:06,598 - core.binance_client - WARNING - Failed to sync time: 451 Client Error:  for url: https://testnet.binance.vision/api/v3/time
+2026-02-24 20:39:06,612 - core.binance_client - ERROR - Request failed: GET /api/v3/account - 451 Client Error:  for url: https://testnet.binance.vision/api/v3/account?timestamp=1771965546598&recvWindow=5000&signature=072a3137be02a1e060021e68bc464fcd68d46f1af98f2940ea26344418b34242
+2026-02-24 20:39:06,612 - core.binance_client - ERROR - Response: {
+  "code": 0,
+  "msg": "Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms. Please contact customer service if you believe you received this message in error."
+}
+2026-02-24 20:39:06,612 - apps.executor.testnet_connector - ERROR - Failed to connect to exchange: 451 Client Error:  for url: https://testnet.binance.vision/api/v3/account?timestamp=1771965546598&recvWindow=5000&signature=072a3137be02a1e060021e68bc464fcd68d46f1af98f2940ea26344418b34242
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/app/apps/executor/multi_symbol_engine.py", line 807, in <module>
+    asyncio.run(main())
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/app/apps/executor/multi_symbol_engine.py", line 802, in main
+    await engine.start()
+  File "/app/apps/executor/multi_symbol_engine.py", line 204, in start
+    await self.connector.initialize()
+  File "/app/apps/executor/testnet_connector.py", line 83, in initialize
+    usdt_balance = self.client.get_balance('USDT')
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/core/binance_client.py", line 216, in get_balance
+    account = self.get_account()
+              ^^^^^^^^^^^^^^^^^^
+  File "/app/core/binance_client.py", line 204, in get_account
+    return self._request('GET', '/api/v3/account', signed=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/core/binance_client.py", line 164, in _request
+    response.raise_for_status()
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 451 Client Error:  for url: https://testnet.binance.vision/api/v3/account?timestamp=1771965546598&recvWindow=5000&signature=072a3137be02a1e060021e68bc464fcd68d46f1af98f2940ea26344418b34242
+
+2026-02-24 20:39:06,840 - __main__ - INFO - Stopping all processes...
+2026-02-24 20:39:06,844 - __main__ - INFO - All processes stopped
