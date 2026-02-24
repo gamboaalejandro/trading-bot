@@ -6,6 +6,7 @@ import pandas as pd
 import logging
 
 from .base_strategy import BaseStrategy, Signal, SignalType
+from apps.ingestion.sentiment import SentimentAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,15 @@ class StrategyManager:
         self.combination_method = combination_method
         self.strategy_stats: Dict[str, Dict] = {}
         self._in_downtrend = False  # Trend filter state
+
+        # Initialize Sentiment Analyzer
+        try:
+            self.sentiment_analyzer = SentimentAnalyzer()
+            self.sentiment_multiplier = self.sentiment_analyzer.get_sentiment_multiplier()
+            logger.info(f"Sentiment Analysis Active (Multiplier: {self.sentiment_multiplier}x)")
+        except Exception as e:
+            logger.warning(f"Sentiment Analysis failed: {e}")
+            self.sentiment_multiplier = 1.0
     
     def register_strategy(self, strategy: BaseStrategy):
         """
@@ -138,6 +148,19 @@ class StrategyManager:
             if sig and sig.signal_type != SignalType.HOLD
         }
         
+        # Apply Sentiment Adjustment to Confidence
+        for name, sig in actionable_signals.items():
+            if sig.signal_type == SignalType.BUY:
+                old_conf = sig.confidence
+                sig.confidence *= self.sentiment_multiplier
+                sig.confidence = min(sig.confidence, 1.0) # Cap at 100%
+
+                if sig.confidence != old_conf:
+                    logger.debug(
+                        f"Sentiment Adjusted {name}: {old_conf:.2%} -> {sig.confidence:.2%} "
+                        f"(Multiplier: {self.sentiment_multiplier}x)"
+                    )
+
         if not actionable_signals:
             logger.debug("No actionable signals from any strategy")
             return None

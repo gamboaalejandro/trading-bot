@@ -59,7 +59,15 @@ class BinanceClient:
         self.timeout = timeout
         
         # Select base URL
-        self.base_url = self.DEMO_BASE_URL if demo_mode else self.PROD_BASE_URL
+        if demo_mode:
+            # Fallback to api.binance.us for demo (mocking) if restricted,
+            # or try the visual testnet.
+            # NOTE: If we are geo-blocked on testnet, we should probably fail gracefully or use a mock.
+            import os
+            # If default testnet fails, users can set BINANCE_TESTNET_URL in .env
+            self.base_url = os.getenv('BINANCE_TESTNET_URL', 'https://testnet.binance.vision')
+        else:
+            self.base_url = self.PROD_BASE_URL
         
         # Session for connection pooling
         self.session = requests.Session()

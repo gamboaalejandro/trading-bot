@@ -26,17 +26,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Get Python from virtual environment
-VENV_PYTHON = Path(__file__).parent / "venv" / "Scripts" / "python.exe"
-if not VENV_PYTHON.exists():
-    # Try alternative path for Linux/Mac
-    VENV_PYTHON = Path(__file__).parent / "venv" / "bin" / "python3"
-    if not VENV_PYTHON.exists():
-        logger.error(f"Virtual environment not found")
-        logger.error("Please run: python -m venv venv && pip install -r requirements.txt")
-        sys.exit(1)
-
-PYTHON_CMD = str(VENV_PYTHON)
+# Get Python interpreter (system or venv)
+PYTHON_CMD = sys.executable
 
 class ProcessManager:
     def __init__(self):
