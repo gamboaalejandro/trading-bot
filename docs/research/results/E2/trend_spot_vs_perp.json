@@ -1,0 +1,15 @@
+{
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E2",
+  "git_sha": "c60c2a25b92fe5e7933af812547ea94bfd07883e",
+  "long_leg": "spot",
+  "manifest_digest": null,
+  "market": "spot vs futures",
+  "p_perp_gt_spot": 0.42145785421457854,
+  "title": "TREND spot vs perp",
+  "trial_ids": []
+}

@@ -1,0 +1,119 @@
+{
+  "TREND:futures": {
+    "A_k": -0.38807732041571547,
+    "configs": {
+      "T1": {
+        "band": 0.2,
+        "config": "T1",
+        "sigma_target": 0.15,
+        "signal": "DON"
+      },
+      "T2": {
+        "band": 0.2,
+        "config": "T2",
+        "sigma_target": 0.15,
+        "signal": "TSM"
+      },
+      "T3": {
+        "band": 0.2,
+        "config": "T3",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      },
+      "T4": {
+        "band": 0.2,
+        "config": "T4",
+        "sigma_target": 0.2,
+        "signal": "MIX"
+      },
+      "T5": {
+        "band": 0.1,
+        "config": "T5",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      }
+    },
+    "experiment": "E2",
+    "failed_A": [
+      "dsr",
+      "vs_bh",
+      "no_catastrophe",
+      "cost_stress",
+      "frozen_spot",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "frozen_spot",
+      "psr",
+      "adaptability"
+    ],
+    "family": "TREND",
+    "final_selection": "T4",
+    "level": "C",
+    "market": "futures",
+    "max_dd": 0.19078284012323565,
+    "report": "E2/trend_t1_t5_futures.md",
+    "returns_csv": "E2/trend_t1_t5_futures_returns.csv",
+    "sharpe": 0.42358237624972134
+  },
+  "TREND:spot": {
+    "A_k": -0.9049047464369073,
+    "configs": {
+      "T1": {
+        "band": 0.2,
+        "config": "T1",
+        "sigma_target": 0.15,
+        "signal": "DON"
+      },
+      "T2": {
+        "band": 0.2,
+        "config": "T2",
+        "sigma_target": 0.15,
+        "signal": "TSM"
+      },
+      "T3": {
+        "band": 0.2,
+        "config": "T3",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      },
+      "T4": {
+        "band": 0.2,
+        "config": "T4",
+        "sigma_target": 0.2,
+        "signal": "MIX"
+      },
+      "T5": {
+        "band": 0.1,
+        "config": "T5",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      }
+    },
+    "experiment": "E2",
+    "failed_A": [
+      "dsr",
+      "pbo",
+      "random_entries",
+      "vs_bh",
+      "no_catastrophe",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "pbo",
+      "random_entries",
+      "psr",
+      "adaptability"
+    ],
+    "family": "TREND",
+    "final_selection": "T1",
+    "level": "C",
+    "market": "spot",
+    "max_dd": 0.1621136422444721,
+    "report": "E2/trend_t1_t5_spot.md",
+    "returns_csv": "E2/trend_t1_t5_spot_returns.csv",
+    "sharpe": 0.43552013400849576
+  }
+}

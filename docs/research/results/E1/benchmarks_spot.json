@@ -1,0 +1,13 @@
+{
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E1",
+  "git_sha": "6dac91d09d8fdf224327bfc08bb3a594b05fb153",
+  "manifest_digest": "6a8d22c62ab7b9a6fb786f025f1368072feec33f88658ac97b4d2400cb6b75fe",
+  "market": "spot",
+  "title": "Benchmarks spot",
+  "trial_ids": []
+}
