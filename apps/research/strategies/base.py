@@ -32,7 +32,9 @@ __all__ = [
     "OrderIntent",
     "OrderIntentError",
     "TargetWeightStrategy",
+    "WeightOverlayStrategy",
     "EventStrategy",
+    "weight_multiplier_of",
 ]
 
 Side = Literal["BUY", "SELL"]
@@ -245,6 +247,32 @@ class TargetWeightStrategy(Protocol):
         """E per symbol (columns) and date (index = bar label, known at its close), in [-1, 1],
         using only data <= t. NaN means "no opinion" and is treated as flat."""
         ...
+
+
+@runtime_checkable
+class WeightOverlayStrategy(TargetWeightStrategy, Protocol):
+    """
+    A target-weight strategy that also scales the weights produced by layer D.
+
+    Risk-reducing overlays (REGIME, FVETO F2/F3, PLAN §2.4-§2.5) must act on the
+    WEIGHTS: scaling the exposure signal ``E`` of every symbol would be undone
+    by the portfolio vol target of :func:`~apps.research.portfolio.sizing.target_weights`.
+    ``weight_multiplier`` returns, per symbol and date (same labels as
+    :meth:`signal`), a factor in ``[0, 1]`` that the engine applies to the
+    target weight decided at that close (NaN = 1). It can never increase exposure.
+    """
+
+    def weight_multiplier(self, panel: dict[str, pd.DataFrame], ctx: Context) -> pd.DataFrame:
+        ...
+
+
+def weight_multiplier_of(strategy: Any, panel: dict[str, pd.DataFrame],
+                         ctx: Context) -> Optional[pd.DataFrame]:
+    """Weight multipliers of ``strategy`` (``None`` if it does not define any)."""
+    fn = getattr(strategy, "weight_multiplier", None)
+    if fn is None or not callable(fn):
+        return None
+    return fn(panel, ctx)
 
 
 @runtime_checkable
