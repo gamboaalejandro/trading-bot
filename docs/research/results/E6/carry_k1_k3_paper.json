@@ -1,0 +1,56 @@
+{
+  "A_k": 1.6467320113497197,
+  "configs": {
+    "K1": {
+      "config": "K1",
+      "theta_in": 0.25,
+      "theta_out": 0.08
+    },
+    "K2": {
+      "config": "K2",
+      "theta_in": 0.2,
+      "theta_out": 0.05
+    },
+    "K3": {
+      "config": "K3",
+      "theta_in": 0.35,
+      "theta_out": 0.1
+    }
+  },
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E6",
+  "failed_A": [
+    "dsr",
+    "pbo",
+    "random_entries",
+    "vs_bh",
+    "no_catastrophe",
+    "cost_stress",
+    "delay_stress",
+    "holdout",
+    "significance"
+  ],
+  "failed_B": [
+    "pbo",
+    "random_entries",
+    "psr"
+  ],
+  "family": "CARRY",
+  "final_selection": "K3",
+  "git_sha": "d6004c56aa38371f75ce52804982bd05409668ec",
+  "level": "C",
+  "manifest_digest": "bc0d179888ee0b8c8a40b71a02e7e28ebc512609726d08290fafbf177211310a",
+  "market": "futures",
+  "max_dd": 0.022718206401376895,
+  "sharpe": 0.14485778165478622,
+  "title": "CARRY K1-K3 (paper)",
+  "trial_ids": [
+    "CARRY-01",
+    "CARRY-02",
+    "CARRY-03"
+  ]
+}
