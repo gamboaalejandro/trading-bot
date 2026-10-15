@@ -90,10 +90,11 @@ logger = logging.getLogger(__name__)
 
 TRADING_MODES = ("dry_run", "spot_demo", "futures_testnet", "live")
 LIVE_CONFIRM_TOKEN = "I_UNDERSTAND"
-# Profiles running on candles shorter than this are "1m profiles": their
-# round-trip cost exceeds the typical candle range, so they never send orders
-# unless ALLOW_1M_LIVE=true.
-MIN_ORDER_TIMEFRAME_SECONDS = 15 * 60
+# Profiles running on candles up to and including this length are "1m
+# profiles" (PLAN 1.2: legacy 1m / intraday 1m-15m trend is switched off):
+# their round-trip cost eats the typical candle range, so they never send
+# orders unless ALLOW_1M_LIVE=true.
+MAX_1M_PROFILE_TIMEFRAME_SECONDS = 15 * 60
 _TIMEFRAME_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800, "M": 2592000}
 
 
@@ -120,7 +121,7 @@ class ExecutionMode:
 
 
 def is_one_minute_timeframe(timeframe: Optional[str]) -> bool:
-    """True for intraday profiles below 15m (1m, 3m, 5m...). Unknown -> True (fail safe)."""
+    """True for intraday profiles up to 15m (1m, 3m, 5m, 15m). Unknown -> True (fail safe)."""
     if not timeframe:
         return False
     tf = str(timeframe).strip()
@@ -128,7 +129,7 @@ def is_one_minute_timeframe(timeframe: Optional[str]) -> bool:
         seconds = int(tf[:-1]) * _TIMEFRAME_UNITS[tf[-1]]
     except (KeyError, ValueError):
         return True
-    return seconds < MIN_ORDER_TIMEFRAME_SECONDS
+    return seconds <= MAX_1M_PROFILE_TIMEFRAME_SECONDS
 
 
 def resolve_trading_mode(
@@ -145,7 +146,7 @@ def resolve_trading_mode(
         - Unknown mode -> TradingModeError (never guess).
         - ``live`` without ``live_confirm == "I_UNDERSTAND"`` -> TradingModeError.
         - ``legacy_dry_run is True`` (DRY_RUN=true) forces ``dry_run``.
-        - 1m profiles (timeframe < 15m) are forced to ``dry_run`` unless
+        - 1m profiles (timeframe <= 15m) are forced to ``dry_run`` unless
           ``allow_1m_live`` is True.
 
     Args:

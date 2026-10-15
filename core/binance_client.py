@@ -501,6 +501,26 @@ class BinanceClient:
         
         return self._request('DELETE', '/api/v3/order', signed=True, params=params)
     
+    def get_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
+        """
+        Query an order (open or closed) by id.
+
+        Args:
+            symbol: Trading pair
+            order_id: Order ID
+
+        Returns:
+            Order status (status, executedQty, cummulativeQuoteQty, stopPrice...)
+
+        Endpoint: GET /api/v3/order (SIGNED)
+        Weight: 4
+        """
+        params = {
+            'symbol': symbol,
+            'orderId': order_id
+        }
+        return self._request('GET', '/api/v3/order', signed=True, params=params)
+
     def cancel_replace_order(
         self,
         symbol: str,

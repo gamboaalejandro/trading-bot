@@ -76,8 +76,8 @@ def test_1m_profiles_reject_live(profile):
 
 
 @pytest.mark.parametrize("requested", ["spot_demo", "futures_testnet", "live"])
-@pytest.mark.parametrize("timeframe", ["1m", "3m", "5m"])
-def test_sub_15m_timeframes_forced_to_dry_run(requested, timeframe):
+@pytest.mark.parametrize("timeframe", ["1m", "3m", "5m", "15m"])
+def test_up_to_15m_timeframes_forced_to_dry_run(requested, timeframe):
     mode = resolve_trading_mode(requested, live_confirm=LIVE_CONFIRM_TOKEN, timeframe=timeframe)
     assert mode.mode == "dry_run"
     assert mode.requested == requested
@@ -110,7 +110,7 @@ def test_legacy_dry_run_true_forces_dry_run():
 
 
 @pytest.mark.parametrize("tf,expected", [
-    ("1m", True), ("5m", True), ("15m", False), ("1h", False), ("4h", False),
+    ("1m", True), ("5m", True), ("15m", True), ("30m", False), ("1h", False), ("4h", False),
     ("1d", False), ("1w", False), ("1M", False), ("garbage", True),
 ])
 def test_one_minute_timeframe_detection(tf, expected):
@@ -167,18 +167,43 @@ def test_main_1m_live_forced_dry(monkeypatch, engine_spy):
     assert engine_spy.created == [{"use_testnet": True, "dry_run": True}]
 
 
-def test_main_confirmed_live_daily(monkeypatch, engine_spy):
+@pytest.mark.parametrize("requested", ["spot_demo", "live"])
+@pytest.mark.parametrize("timeframe", ["15m", "1h", "4h", "1d"])
+def test_legacy_engine_forced_dry_on_any_timeframe(monkeypatch, engine_spy, requested, timeframe):
+    # DEFAULT_TIMEFRAME does not change the engine's legacy 1m strategies/profiles
+    cfg = make_settings(
+        TRADING_MODE=requested, LIVE_TRADING_CONFIRM=LIVE_CONFIRM_TOKEN, DEFAULT_TIMEFRAME=timeframe
+    )
+    mode = engine_mod.resolve_engine_mode(cfg)
+    assert mode.mode == "dry_run" and mode.dry_run is True and mode.use_testnet is True
+    assert mode.requested == requested
+    assert "ALLOW_1M_LIVE" in mode.reason
+    monkeypatch.setattr(engine_mod, "settings", cfg)
+    asyncio.run(engine_mod.main())
+    assert engine_spy.created == [{"use_testnet": True, "dry_run": True}]
+
+
+def test_main_confirmed_live_needs_allow_1m_live(monkeypatch, engine_spy):
     monkeypatch.setattr(
         engine_mod, "settings",
-        make_settings(TRADING_MODE="live", LIVE_TRADING_CONFIRM=LIVE_CONFIRM_TOKEN, DEFAULT_TIMEFRAME="1d"),
+        make_settings(
+            TRADING_MODE="live", LIVE_TRADING_CONFIRM=LIVE_CONFIRM_TOKEN,
+            DEFAULT_TIMEFRAME="1d", ALLOW_1M_LIVE=True,
+        ),
     )
     asyncio.run(engine_mod.main())
     assert engine_spy.created == [{"use_testnet": False, "dry_run": False}]
 
 
+def test_engine_rejects_futures_testnet_even_on_1m():
+    with pytest.raises(TradingModeError):
+        engine_mod.resolve_engine_mode(make_settings(TRADING_MODE="futures_testnet"))
+
+
 def test_main_spot_demo_uses_testnet(monkeypatch, engine_spy):
     monkeypatch.setattr(
-        engine_mod, "settings", make_settings(TRADING_MODE="spot_demo", DEFAULT_TIMEFRAME="4h", USE_TESTNET=False)
+        engine_mod, "settings",
+        make_settings(TRADING_MODE="spot_demo", DEFAULT_TIMEFRAME="4h", USE_TESTNET=False, ALLOW_1M_LIVE=True),
     )
     asyncio.run(engine_mod.main())
     assert engine_spy.created == [{"use_testnet": True, "dry_run": False}]

@@ -66,6 +66,21 @@ MAX_UNPROTECTED_SECONDS = 10.0
 STOP_REARM_INTERVAL_SECONDS = 30.0  # monitor loop re-arms unprotected positions
 BINANCE_UNKNOWN_ORDER = -2011
 
+# Spot order states (GET /api/v3/order)
+ORDER_STATUS_OPEN = ('NEW', 'PARTIALLY_FILLED', 'PENDING_NEW')
+ORDER_STATUS_GONE_UNFILLED = ('CANCELED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'REJECTED')
+QUANTITY_REL_TOL = 1e-9
+
+
+class _ListingFailed:
+    """Sentinel: the open orders could not be listed (distinct from 'no stop')."""
+
+    def __repr__(self):
+        return 'LISTING_FAILED'
+
+
+LISTING_FAILED = _ListingFailed()
+
 
 def timeframe_to_seconds(timeframe: str) -> int:
     """Convert a Binance interval ('1m', '4h', '1d', '1w') to seconds."""
@@ -744,6 +759,8 @@ class MultiSymbolEngine:
                         # A position must never stay without its exchange stop
                         if not self.dry_run and not position.get('stop_order_id'):
                             await self._rearm_stop_if_due(symbol)
+                            if symbol not in self.open_positions:
+                                continue  # closed by its exchange stop
 
                         entry_price = position['entry_price']
                         take_profit = position['take_profit']
@@ -779,6 +796,9 @@ class MultiSymbolEngine:
                                 stop_loss = breakeven_sl
                                 await self._move_exchange_stop(symbol)
                         
+                        if symbol not in self.open_positions:
+                            continue  # the stop move found it closed by the exchange stop
+
                         # ========================================
                         # STAGNATION EXIT (CAPITAL ROTATION)
                         # ========================================
@@ -981,13 +1001,20 @@ class MultiSymbolEngine:
         """Delays before each attempt: first attempt immediately, then the retries."""
         return (0.0,) + tuple(self.stop_retry_delays)
 
-    async def _find_open_stop(self, symbol: str) -> Optional[Dict]:
-        """Return an open SELL STOP_LOSS order for symbol on the exchange, if any."""
+    async def _find_open_stop(self, symbol: str):
+        """
+        Return the open SELL STOP_LOSS order for symbol on the exchange.
+
+        Returns:
+            The order dict, None if there is no open stop, or LISTING_FAILED
+            if the open orders could not be listed (never read that as
+            'no stop': the caller must retry or stay put).
+        """
         try:
             orders = await self.connector.get_positions(symbol)
         except Exception as e:
             logger.warning(f"{symbol} - Could not list open orders: {e}")
-            return None
+            return LISTING_FAILED
         for order in orders or []:
             if order.get('side') == 'SELL' and str(order.get('type', '')).startswith('STOP_LOSS'):
                 return order
@@ -1012,6 +1039,10 @@ class MultiSymbolEngine:
                 await asyncio.sleep(delay)
             if attempt > 0:
                 existing = await self._find_open_stop(symbol)
+                if existing is LISTING_FAILED:
+                    # A previous attempt may have placed a stop: never duplicate it blindly
+                    last_error = RuntimeError("could not list open orders")
+                    continue
                 if existing:
                     logger.warning(f"{symbol} - Adopting existing exchange stop {existing.get('orderId')}")
                     return existing.get('orderId')
@@ -1047,6 +1078,11 @@ class MultiSymbolEngine:
             return
         self._last_stop_rearm[symbol] = now
         position = self.open_positions[symbol]
+        lost_id = position.get('unverified_stop_id')
+        if lost_id:
+            # A previous stop vanished and its fate is still unknown
+            await self._reconcile_missing_stop(symbol, lost_id, "re-arm check")
+            return
         logger.warning(f"{symbol} - No exchange stop on record, re-arming")
         position['stop_order_id'] = await self._place_exchange_stop(
             symbol, position['quantity'], position['stop_loss']
@@ -1054,15 +1090,166 @@ class MultiSymbolEngine:
         self._save_state()
 
     async def _replace_lost_stop(self, symbol: str, reason: str):
-        """The exchange stop is gone: alert and place a fresh one (with retries)."""
+        """
+        The exchange stop is gone and the coins are still held: alert and
+        place a fresh one (with retries).
+
+        Only call this when the old stop is known to be cancelled/expired
+        unfilled (never on a bare -2011: the stop may have filled).
+        """
         position = self.open_positions[symbol]
         position['stop_order_id'] = None
+        position.pop('unverified_stop_id', None)
         self._save_state()
         self._alert(f"{symbol} - position unprotected on the exchange ({reason}); placing a new stop")
         position['stop_order_id'] = await self._place_exchange_stop(
             symbol, position['quantity'], position['stop_loss']
         )
         self._save_state()
+
+    async def _held_base_quantity(self, symbol: str) -> Optional[float]:
+        """Free + locked balance of the symbol's base asset, or None if unknown."""
+        try:
+            balances = await self.connector.get_balance()
+        except Exception as e:
+            logger.warning(f"{symbol} - Could not read balance: {e}")
+            return None
+        entry = balances.get(base_asset(symbol), {}) or {}
+        if 'total' in entry:
+            return float(entry.get('total') or 0.0)
+        return float(entry.get('free', 0.0) or 0.0) + float(entry.get('used', 0.0) or 0.0)
+
+    async def _query_order(self, symbol: str, order_id) -> Optional[Dict]:
+        """GET /api/v3/order for order_id, or None if it cannot be queried."""
+        try:
+            return await self.connector.get_order(symbol, str(order_id))
+        except Exception as e:
+            logger.warning(f"{symbol} - Could not query order {order_id}: {e}")
+            return None
+
+    def _close_by_exchange_stop(self, symbol: str, order: Optional[Dict], reason: str):
+        """
+        The exchange stop closed the position: book the PnL and forget it.
+
+        Uses the stop order's fills when known, otherwise its stop price (or
+        the client-side stop level) as an approximate exit.
+        """
+        position = self.open_positions[symbol]
+        entry = position['entry_price']
+        quantity = position['quantity']
+        order = order or {}
+        exit_price = 0.0
+        executed = float(order.get('executedQty', 0) or 0)
+        if executed > 0:
+            exit_price = float(order.get('cummulativeQuoteQty', 0) or 0) / executed
+            quantity = executed
+        if exit_price <= 0:
+            try:
+                exit_price = float(order.get('stopPrice') or 0)
+            except (TypeError, ValueError):
+                exit_price = 0.0
+        if exit_price <= 0:
+            exit_price = position['stop_loss']
+
+        if position['side'] == 'buy':
+            pnl = (exit_price - entry) * quantity
+        else:
+            pnl = (entry - exit_price) * quantity
+        roi = (pnl / (entry * quantity)) * 100 if entry and quantity else 0.0
+
+        logger.warning(
+            f"{symbol} - Position closed by exchange stop {order.get('orderId', '?')} ({reason}): "
+            f"exit ~${exit_price:,.4f}, qty {quantity:.6f}, PnL ${pnl:,.2f}"
+        )
+        self._record_realized_pnl(pnl)
+        self.pnl_logger.log_trade_exit(
+            symbol=symbol,
+            exit_price=exit_price,
+            pnl=pnl,
+            roi=roi,
+            reason='exchange_stop',
+            timestamp=datetime.now(),
+            entry_price=entry,
+            quantity=quantity
+        )
+        del self.open_positions[symbol]
+        self._last_stop_rearm.pop(symbol, None)
+        self._save_state()
+
+    async def _reconcile_missing_stop(self, symbol: str, old_id, reason: str,
+                                      open_stop_checked: bool = False) -> str:
+        """
+        The tracked exchange stop no longer exists (-2011, or an unknown
+        cancelReplace outcome with no open stop). Find out why before acting:
+        on spot it most often means the stop TRIGGERED AND FILLED.
+
+        1. An open stop exists (e.g. the replace went through): adopt it.
+        2. The old order is FILLED, or the base balance (free + locked) no
+           longer covers the position: the exchange stop closed it -> book
+           PnL, delete the position, never re-place a stop.
+        3. The old order is CANCELED/EXPIRED and the balance covers the
+           quantity: the position is unprotected -> place a fresh stop.
+        4. Anything else (order or balance unknown): do not guess. The old
+           id is kept as 'unverified_stop_id' and re-checked by the monitor.
+
+        Args:
+            symbol: Trading pair.
+            old_id: orderId of the stop that vanished.
+            reason: Context for logs and alerts.
+            open_stop_checked: True if the caller already listed the open
+                orders and found no stop.
+
+        Returns:
+            'adopted', 'closed', 'replaced' or 'pending'.
+        """
+        position = self.open_positions[symbol]
+
+        if not open_stop_checked:
+            existing = await self._find_open_stop(symbol)
+            if existing is LISTING_FAILED:
+                return self._mark_stop_unverified(symbol, old_id, f"{reason}; open orders unavailable")
+            if existing:
+                position['stop_order_id'] = existing.get('orderId')
+                position.pop('unverified_stop_id', None)
+                self._save_state()
+                logger.warning(f"{symbol} - Adopting open exchange stop {existing.get('orderId')}")
+                return 'adopted'
+
+        order = await self._query_order(symbol, old_id)
+        status = str((order or {}).get('status', '')).upper()
+        held = await self._held_base_quantity(symbol)
+        quantity = position['quantity']
+        covered = held is not None and held >= quantity * (1 - QUANTITY_REL_TOL)
+
+        if status == 'FILLED' or (held is not None and not covered):
+            self._close_by_exchange_stop(
+                symbol, order, f"{reason}; order status={status or 'unknown'}, held={held}"
+            )
+            return 'closed'
+        if status in ORDER_STATUS_OPEN:
+            position['stop_order_id'] = old_id
+            position.pop('unverified_stop_id', None)
+            self._save_state()
+            logger.warning(f"{symbol} - Stop {old_id} is still open ({status}); keeping it")
+            return 'adopted'
+        if status in ORDER_STATUS_GONE_UNFILLED and covered:
+            await self._replace_lost_stop(symbol, f"{reason}; stop {old_id} {status}")
+            return 'replaced'
+        return self._mark_stop_unverified(
+            symbol, old_id, f"{reason}; order status={status or 'unknown'}, held={held}"
+        )
+
+    def _mark_stop_unverified(self, symbol: str, old_id, reason: str) -> str:
+        """Keep the position, without a stop on record, until the old stop is verified."""
+        position = self.open_positions[symbol]
+        position['stop_order_id'] = None
+        position['unverified_stop_id'] = old_id
+        self._save_state()
+        self._alert(
+            f"{symbol} - exchange stop {old_id} missing and its fate is unknown ({reason}); "
+            f"NOT re-placing until verified (client-side stop active)"
+        )
+        return 'pending'
 
     async def _move_exchange_stop(self, symbol: str):
         """
@@ -1072,10 +1259,12 @@ class MultiSymbolEngine:
         old stop is only cancelled if the new one can be attempted:
         - both legs succeed: track the new order id;
         - cancel failed (STOP_ON_FAILURE): the old stop is intact; retry;
-        - cancel succeeded but the new stop was rejected, or the old stop no
-          longer exists (-2011): the position is unprotected -> alert and
-          place a fresh stop with retries;
-        - unknown outcome (timeout / 5xx): reconcile with the open orders.
+        - cancel succeeded but the new stop was rejected: the position is
+          unprotected -> alert and place a fresh stop with retries;
+        - the old stop no longer exists (-2011): it may have FILLED ->
+          _reconcile_missing_stop checks the order and the balance first;
+        - unknown outcome (timeout / 5xx): reconcile with the open orders
+          (listing failure -> retry; no open stop -> _reconcile_missing_stop).
         If every retry fails the old stop stays at its previous level and an
         alert is raised (the client-side stop keeps the new level).
         """
@@ -1111,13 +1300,30 @@ class MultiSymbolEngine:
                     await self._replace_lost_stop(symbol, f"stop {old_id} cancelled, new stop rejected: {e}")
                     return
                 if e.cancel_error_code == BINANCE_UNKNOWN_ORDER:
-                    await self._replace_lost_stop(symbol, f"stop {old_id} no longer exists: {e}")
-                    return
+                    result = await self._reconcile_missing_stop(
+                        symbol, old_id, f"stop {old_id} no longer exists: {e}"
+                    )
+                    if result != 'adopted':
+                        return
+                    old_id = position['stop_order_id']
+                    continue
                 if e.outcome_unknown:
                     existing = await self._find_open_stop(symbol)
+                    if existing is LISTING_FAILED:
+                        logger.error(
+                            f"{symbol} - Stop move attempt {attempts}: outcome unknown and "
+                            f"open orders unavailable; retrying"
+                        )
+                        continue
                     if existing is None:
-                        await self._replace_lost_stop(symbol, f"unknown cancelReplace outcome: {e}")
-                        return
+                        result = await self._reconcile_missing_stop(
+                            symbol, old_id, f"unknown cancelReplace outcome: {e}",
+                            open_stop_checked=True
+                        )
+                        if result != 'adopted':
+                            return
+                        old_id = position['stop_order_id']
+                        continue
                     old_id = existing.get('orderId')
                     position['stop_order_id'] = old_id
                     self._save_state()
@@ -1166,8 +1372,10 @@ def resolve_engine_mode(cfg=None) -> ExecutionMode:
     """
     Resolve the execution mode of the spot engine from settings.
 
-    dry_run is the default; live needs LIVE_TRADING_CONFIRM=I_UNDERSTAND; 1m
-    profiles are forced to dry_run unless ALLOW_1M_LIVE=true. The legacy
+    dry_run is the default; live needs LIVE_TRADING_CONFIRM=I_UNDERSTAND. The
+    strategies (BB+RSI, MA+RSI) and profiles of this engine are the legacy 1m
+    ones whatever DEFAULT_TIMEFRAME says (PLAN 1.2: switched off for real
+    money), so it only leaves dry_run with ALLOW_1M_LIVE=true. The legacy
     USE_TESTNET flag is ignored: the network follows TRADING_MODE.
 
     Raises:
@@ -1176,9 +1384,19 @@ def resolve_engine_mode(cfg=None) -> ExecutionMode:
     """
     cfg = cfg or settings
     mode = resolve_settings_mode(cfg)
-    if mode.mode == 'futures_testnet':
+    if mode.requested == 'futures_testnet':
         raise TradingModeError(
             "multi_symbol_engine is a spot engine; TRADING_MODE=futures_testnet is not supported here"
+        )
+    if not mode.dry_run and not cfg.ALLOW_1M_LIVE:
+        reason = (
+            f"multi_symbol_engine runs the legacy 1m strategies/profiles "
+            f"(DEFAULT_TIMEFRAME={cfg.DEFAULT_TIMEFRAME} does not change that): forced to dry_run "
+            f"(set ALLOW_1M_LIVE=true to override)"
+        )
+        logger.critical(f"TRADING_MODE {mode.requested} -> dry_run: {reason}")
+        return ExecutionMode(
+            mode='dry_run', requested=mode.requested, dry_run=True, use_testnet=True, reason=reason
         )
     return mode
 

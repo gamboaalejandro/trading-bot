@@ -3,10 +3,11 @@
 ## [Unreleased]
 
 ### Security
-- `TRADING_MODE` (`dry_run` por defecto, `spot_demo`, `futures_testnet`, `live`); `live` exige `LIVE_TRADING_CONFIRM=I_UNDERSTAND`. Los perfiles de 1m (timeframe < 15m) se fuerzan a `dry_run` salvo `ALLOW_1M_LIVE=true`. `DRY_RUN=true` solo puede forzar `dry_run`; `USE_TESTNET` se ignora en el motor.
+- `TRADING_MODE` (`dry_run` por defecto, `spot_demo`, `futures_testnet`, `live`); `live` exige `LIVE_TRADING_CONFIRM=I_UNDERSTAND`. Los perfiles de 1m (timeframe <= 15m) y el motor legado `multi_symbol_engine` (con cualquier `DEFAULT_TIMEFRAME`) se fuerzan a `dry_run` salvo `ALLOW_1M_LIVE=true`. `DRY_RUN=true` solo puede forzar `dry_run`; `USE_TESTNET` se ignora en el motor.
 
 ### Fixed
 - Stop spot movido con `POST /api/v3/order/cancelReplace` (`STOP_ON_FAILURE`), con reintentos, reconciliación con las órdenes abiertas y alerta si la posición queda sin stop; el monitor vuelve a colocar stops perdidos.
+- Stop spot desaparecido (`-2011` o resultado desconocido sin stop abierto): se consulta la orden antigua y el saldo del activo base antes de actuar; si se ejecutó (`FILLED`) o el saldo no cubre la posición se registra el cierre por stop del exchange y no se recoloca. Un fallo al listar órdenes abiertas ya no se interpreta como "sin stop".
 - `apps/analytics/backtester.py` marcado DEPRECATED: sin `_generate_mock_data` ni fallback, cualquier fallo de descarga lanza `BacktestDataError`.
 - WebSocket: `BinanceWebSocket.closed_kline` solo devuelve velas con `x == true`.
 

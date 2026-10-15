@@ -68,7 +68,7 @@ USE_TESTNET=true
 # Modo de ejecución: dry_run (por defecto) | spot_demo | futures_testnet | live
 TRADING_MODE=dry_run
 # live exige además LIVE_TRADING_CONFIRM=I_UNDERSTAND
-# Los perfiles de 1m (timeframe < 15m) se fuerzan a dry_run salvo ALLOW_1M_LIVE=true
+# Los perfiles de 1m (timeframe <= 15m) y el motor legado multi_symbol_engine (cualquier timeframe) se fuerzan a dry_run salvo ALLOW_1M_LIVE=true
 # DRY_RUN=true (legado) solo puede forzar dry_run; USE_TESTNET se ignora en el motor
 
 # Perfil de trading

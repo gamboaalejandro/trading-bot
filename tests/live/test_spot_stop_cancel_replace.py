@@ -22,6 +22,7 @@ BASE = "https://spot.test"
 CR_URL = f"{BASE}/api/v3/order/cancelReplace"
 ORDER_URL = f"{BASE}/api/v3/order"
 OPEN_ORDERS_URL = f"{BASE}/api/v3/openOrders"
+ACCOUNT_URL = f"{BASE}/api/v3/account"
 EXCHANGE_INFO_URL = f"{BASE}/api/v3/exchangeInfo"
 EXCHANGE_INFO = {"symbols": [{"symbol": "SOLUSDT", "filters": [
     {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
@@ -65,11 +66,37 @@ class SimExchange:
         self.delete_calls = 0
         self.naked_since = None
         self.max_naked = 0.0
+        # Closed orders queryable with GET /api/v3/order, and the SOL wallet
+        self.history = {}           # orderId -> order body (status, executedQty...)
+        self.held_free = 0.0
+        self.held_locked = 2.0      # the 2.0 SOL position, locked by stop 11
+        self.open_orders_failures = 0
+        self.order_queries = []
         rsps.add(responses.GET, EXCHANGE_INFO_URL, json=EXCHANGE_INFO)
         rsps.add_callback(responses.POST, CR_URL, callback=self._cancel_replace)
         rsps.add_callback(responses.POST, ORDER_URL, callback=self._new_order)
         rsps.add_callback(responses.DELETE, ORDER_URL, callback=self._delete)
+        rsps.add_callback(responses.GET, ORDER_URL, callback=self._query_order)
         rsps.add_callback(responses.GET, OPEN_ORDERS_URL, callback=self._open_orders)
+        rsps.add_callback(responses.GET, ACCOUNT_URL, callback=self._account)
+
+    def stop_filled(self, oid=11, price=99.5, qty=2.0):
+        """The stop triggered between two monitor ticks and sold the position."""
+        del self.stops[oid]
+        self.history[oid] = {
+            "orderId": oid, "status": "FILLED", "type": "STOP_LOSS", "side": "SELL",
+            "stopPrice": "100.00", "executedQty": f"{qty}", "cummulativeQuoteQty": f"{qty * price}",
+        }
+        self.held_free, self.held_locked = 0.0, 0.0
+
+    def stop_expired(self, oid=11):
+        """The stop vanished unfilled (e.g. expired): the coins are free again."""
+        del self.stops[oid]
+        self.history[oid] = {
+            "orderId": oid, "status": "EXPIRED", "type": "STOP_LOSS", "side": "SELL",
+            "stopPrice": "100.00", "executedQty": "0", "cummulativeQuoteQty": "0",
+        }
+        self.held_free, self.held_locked = self.held_locked, 0.0
 
     def _mark(self):
         now = time.monotonic()
@@ -92,14 +119,14 @@ class SimExchange:
         old = int(q["cancelOrderId"])
         if action == "cancel_fail":
             return _json(400, _cr_failure(cancel_ok=False))
+        if action == "unknown":  # nothing applied, answer lost
+            return _json(503, {"code": -1007, "msg": "Timeout waiting for response from backend server."})
         if old not in self.stops:
             return _json(400, _cr_failure(cancel_ok=False, new_ok=True))
         if action == "partial":
             del self.stops[old]
             self._mark()
             return _json(400, _cr_failure(cancel_ok=True))
-        if action == "unknown":
-            return _json(503, {"code": -1007, "msg": "Timeout waiting for response from backend server."})
         del self.stops[old]
         new_id = self._add_stop(float(q["stopPrice"]))
         self._mark()
@@ -125,7 +152,26 @@ class SimExchange:
         self.delete_calls += 1
         return _json(200, {})
 
+    def _query_order(self, request):
+        oid = int(_query(request)["orderId"])
+        self.order_queries.append(oid)
+        if oid in self.stops:
+            return _json(200, {"orderId": oid, "status": "NEW", "type": "STOP_LOSS",
+                               "stopPrice": f"{self.stops[oid]:.2f}", "executedQty": "0"})
+        if oid in self.history:
+            return _json(200, self.history[oid])
+        return _json(400, {"code": -2013, "msg": "Order does not exist."})
+
+    def _account(self, request):
+        return _json(200, {"balances": [
+            {"asset": "SOL", "free": f"{self.held_free}", "locked": f"{self.held_locked}"},
+            {"asset": "USDT", "free": "1000", "locked": "0"},
+        ]})
+
     def _open_orders(self, request):
+        if self.open_orders_failures > 0:
+            self.open_orders_failures -= 1
+            return _json(503, {"code": -1001, "msg": "Internal error; unable to process your request."})
         return _json(200, [
             {"orderId": oid, "side": "SELL", "type": "STOP_LOSS", "stopPrice": f"{p:.2f}"}
             for oid, p in self.stops.items()
@@ -196,6 +242,15 @@ def test_client_5xx_and_network_errors_are_unknown_outcome(client):
             client.cancel_replace_order("SOLUSDT", 11, "SELL", "STOP_LOSS", 1.0, stop_price=101.0)
         assert exc.value.outcome_unknown
         assert not exc.value.cancel_succeeded
+
+
+@responses.activate
+def test_client_get_order_queries_by_id(client):
+    responses.add(responses.GET, ORDER_URL, json={"orderId": 11, "status": "FILLED"})
+    assert client.get_order("SOLUSDT", 11)["status"] == "FILLED"
+    q = _query(responses.calls[0].request)
+    assert q["symbol"] == "SOLUSDT" and q["orderId"] == "11"
+    assert "signature" in q
 
 
 @responses.activate
@@ -291,14 +346,109 @@ def test_partial_failure_rearms_within_bound_with_default_delays(engine):
     assert any("unprotected" in a["message"] for a in engine.alerts)
 
 
+def _assert_closed_by_exchange_stop(engine, ex, expected_pnl):
+    assert "SOL/USDT" not in engine.open_positions
+    assert ex.order_calls == []          # no stop re-placed for coins no longer held
+    assert ex.stops == {}
+    assert engine.daily_realized_pnl == pytest.approx(expected_pnl)
+    with open(engine_mod.STATE_FILE) as f:
+        assert "SOL/USDT" not in f.read()
+
+
 @responses.activate
-def test_unknown_order_places_fresh_stop(engine):
+def test_unknown_order_filled_stop_closes_position(engine):
+    # A >3% wick between two monitor ticks: stop 11 triggered and FILLED
     ex = SimExchange(responses)
-    ex.stops = {}  # stop 11 is gone (triggered/expired) but quantity is still held
+    ex.stop_filled(price=99.5)
+    asyncio.run(engine._move_exchange_stop("SOL/USDT"))
+    assert ex.cr_calls and ex.order_queries == [11]
+    _assert_closed_by_exchange_stop(engine, ex, (99.5 - 100.0) * 2.0)
+
+
+@responses.activate
+def test_unknown_order_without_balance_closes_position(engine):
+    # Order history unavailable (-2013) but the coins are gone: closed by the stop
+    ex = SimExchange(responses)
+    ex.stops = {}
+    ex.held_free = ex.held_locked = 0.0
+    asyncio.run(engine._move_exchange_stop("SOL/USDT"))
+    _assert_closed_by_exchange_stop(engine, ex, (103.0 - 100.0) * 2.0)
+
+
+@responses.activate
+def test_unknown_order_expired_with_coins_places_fresh_stop(engine):
+    ex = SimExchange(responses)
+    ex.stop_expired()  # vanished unfilled, quantity still held
     position = _move(engine)
+    assert ex.order_queries == [11]
     assert position["stop_order_id"] in ex.stops
     assert list(ex.stops.values()) == [103.0]
-    assert engine.alerts
+    assert any("unprotected" in a["message"] for a in engine.alerts)
+
+
+@responses.activate
+def test_unknown_order_unverifiable_is_not_replaced_until_verified(engine):
+    ex = SimExchange(responses)
+    ex.stops = {}  # gone, no order history (-2013), coins still held
+    ex.held_free, ex.held_locked = 2.0, 0.0
+    position = _move(engine)
+    assert ex.order_calls == []
+    assert position["stop_order_id"] is None
+    assert position["unverified_stop_id"] == 11
+    assert any("fate is unknown" in a["message"] for a in engine.alerts)
+
+    # The monitor re-checks instead of blindly re-placing; now the order is visible
+    ex.history[11] = {"orderId": 11, "status": "CANCELED", "executedQty": "0"}
+    asyncio.run(engine._rearm_stop_if_due("SOL/USDT"))
+    assert position["stop_order_id"] in ex.stops
+    assert "unverified_stop_id" not in position
+    assert list(ex.stops.values()) == [103.0]
+
+
+@responses.activate
+def test_unknown_outcome_with_filled_stop_closes_position(engine):
+    ex = SimExchange(responses, script_cr=["unknown"])
+    ex.stop_filled(price=99.0)
+    asyncio.run(engine._move_exchange_stop("SOL/USDT"))
+    assert len(ex.cr_calls) == 1
+    _assert_closed_by_exchange_stop(engine, ex, (99.0 - 100.0) * 2.0)
+
+
+@responses.activate
+def test_open_orders_failure_on_unknown_outcome_retries(engine):
+    # Listing failed is not 'no stop': retry the move, never place a duplicate
+    ex = SimExchange(responses, script_cr=["unknown", "ok"])
+    ex.open_orders_failures = 1
+    position = _move(engine)
+    assert len(ex.cr_calls) == 2
+    assert ex.order_calls == [] and ex.order_queries == []
+    assert position["stop_order_id"] == 12
+    assert ex.stops == {12: 103.0}
+    assert engine.alerts == []
+
+
+@responses.activate
+def test_open_orders_failure_on_unknown_order_waits_then_closes(engine):
+    ex = SimExchange(responses)
+    ex.stop_filled()
+    ex.open_orders_failures = 1
+    position = _move(engine)
+    assert ex.order_calls == []
+    assert position["stop_order_id"] is None and position["unverified_stop_id"] == 11
+    # Next monitor check: listing works, the FILLED stop closes the position
+    asyncio.run(engine._rearm_stop_if_due("SOL/USDT"))
+    _assert_closed_by_exchange_stop(engine, ex, (99.5 - 100.0) * 2.0)
+
+
+@responses.activate
+def test_place_stop_skips_attempt_when_listing_fails(engine):
+    ex = SimExchange(responses, script_order=["fail", "ok"])
+    ex.stops = {}
+    ex.open_orders_failures = 1
+    order_id = asyncio.run(engine._place_exchange_stop("SOL/USDT", 2.0, 103.0))
+    # attempt 1 fails, attempt 2 cannot verify -> skipped, attempt 3 places
+    assert len(ex.order_calls) == 2
+    assert order_id in ex.stops and len(ex.stops) == 1
 
 
 @responses.activate

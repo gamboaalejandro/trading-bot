@@ -150,6 +150,14 @@ class TestnetConnector:
         
         return open_orders
     
+    async def get_order(self, symbol: str, order_id: str) -> Dict[str, Any]:
+        """Query an order (open or closed) by id: GET /api/v3/order."""
+        if not self._initialized:
+            await self.initialize()
+
+        binance_symbol = symbol.replace('/', '')
+        return await asyncio.to_thread(self.client.get_order, binance_symbol, int(order_id))
+
     async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Get specific position for symbol.
