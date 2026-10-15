@@ -6,6 +6,7 @@ Implements HMAC SHA256 authentication as per Binance API documentation:
 https://developers.binance.com/docs/binance-spot-api-docs/rest-api
 """
 import time
+from decimal import Decimal, ROUND_DOWN
 import hmac
 import hashlib
 import requests
@@ -344,8 +345,11 @@ class BinanceClient:
             else:
                 precision = 0
             
-            # Round to precision
-            rounded = round(quantity, precision)
+            # Round DOWN to a multiple of stepSize: rounding up can ask for
+            # more than the available balance (insufficient balance errors)
+            step = Decimal(lot_size_filter['stepSize'])
+            steps = (Decimal(str(quantity)) / step).to_integral_value(rounding=ROUND_DOWN)
+            rounded = float(round(steps * step, precision))
             
             logger.debug(f"Rounded {quantity} to {rounded} ({precision} decimals, stepSize={step_size})")
             
