@@ -4,11 +4,14 @@ Strategy Manager - Manages multiple trading strategies
 from typing import List, Optional, Dict
 import pandas as pd
 import logging
+import time
 
 from .base_strategy import BaseStrategy, Signal, SignalType
 from apps.ingestion.sentiment import SentimentAnalyzer
 
 logger = logging.getLogger(__name__)
+
+SENTIMENT_REFRESH_SECONDS = 3600
 
 
 class StrategyManager:
@@ -34,9 +37,19 @@ class StrategyManager:
         self.strategy_stats: Dict[str, Dict] = {}
         self._in_downtrend = False  # Trend filter state
 
-        # Initialize Sentiment Analyzer
+        # Sentiment Analyzer (refreshed periodically, the index is daily)
+        self.sentiment_analyzer = SentimentAnalyzer()
+        self.sentiment_multiplier = 1.0
+        self._sentiment_updated_at = 0.0
+        self._refresh_sentiment()
+
+    def _refresh_sentiment(self):
+        """Refresh the sentiment multiplier at most once per hour."""
+        now = time.time()
+        if now - self._sentiment_updated_at < SENTIMENT_REFRESH_SECONDS:
+            return
+        self._sentiment_updated_at = now
         try:
-            self.sentiment_analyzer = SentimentAnalyzer()
             self.sentiment_multiplier = self.sentiment_analyzer.get_sentiment_multiplier()
             logger.info(f"Sentiment Analysis Active (Multiplier: {self.sentiment_multiplier}x)")
         except Exception as e:
@@ -140,6 +153,7 @@ class StrategyManager:
             self._in_downtrend = False
             logger.debug(f"[TREND FILTER] Insufficient data for EMA 200 ({len(df)} candles)")
         
+        self._refresh_sentiment()
         all_signals = await self.get_all_signals(df)
         
         # Filter out None and HOLD signals

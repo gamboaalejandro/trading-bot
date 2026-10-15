@@ -153,6 +153,11 @@ class MultiSymbolEngine:
         self.latest_candles: Dict[str, pd.DataFrame] = {}
         self.last_candle_time: Dict[str, datetime] = {}
         
+        # Daily risk accounting (feeds the risk manager kill switch)
+        self.trading_day = datetime.now().date()
+        self.daily_realized_pnl = 0.0
+        self.daily_trades: Dict[str, int] = {}
+
         # Position tracking (prevent duplicate trades)
         self.open_positions: Dict[str, Dict] = {}  # {symbol: {'side': 'buy', 'entry_price': 71000, 'timestamp': ...}}
         
@@ -500,6 +505,17 @@ class MultiSymbolEngine:
             signal: Trading signal
         """
         try:
+            self._roll_trading_day()
+
+            # Portfolio limits from the trading profile and safe_list
+            if len(self.open_positions) >= self.profile.max_positions and symbol not in self.open_positions:
+                logger.info(f"[SKIP] {symbol} - Max open positions reached ({self.profile.max_positions})")
+                return
+            max_daily = (get_symbol_config(symbol) or {}).get('max_daily_trades')
+            if max_daily is not None and self.daily_trades.get(symbol, 0) >= max_daily:
+                logger.info(f"[SKIP] {symbol} - Max daily trades reached ({max_daily})")
+                return
+
             # Check if we already have an open position for this symbol
             if symbol in self.open_positions:
                 existing = self.open_positions[symbol]
@@ -625,6 +641,8 @@ class MultiSymbolEngine:
                 logger.info(f"   SL Distance: ${distance_to_sl:.2f} (-{risk_pct:.2f}%)")
                 logger.info(f"   Risk/Reward: 1:{tp_rr_ratio:.1f}")
                 
+                self.daily_trades[symbol] = self.daily_trades.get(symbol, 0) + 1
+
                 # Track position to prevent duplicate trades
                 self.open_positions[symbol] = {
                     'side': signal.signal_type.value,
@@ -802,6 +820,7 @@ class MultiSymbolEngine:
                 logger.info(f"Exit Price: ${current_price:,.2f}")
                 logger.info(f"Quantity: {quantity:.6f}")
                 logger.info(f"Simulated PNL: ${pnl:,.2f}")
+                self._record_realized_pnl(pnl)
                 logger.info(f"{'='*60}\n")
                 
                 del self.open_positions[symbol]
@@ -849,6 +868,8 @@ class MultiSymbolEngine:
                 logger.info(f"Order ID: {order_result.get('orderId', 'N/A')}")
                 logger.info(f"{'='*60}\n")
                 
+                self._record_realized_pnl(pnl)
+
                 # Log exit to P&L tracker
                 self.pnl_logger.log_trade_exit(
                     symbol=symbol,
@@ -869,6 +890,22 @@ class MultiSymbolEngine:
         except Exception as e:
             logger.error(f"Error closing position for {symbol}: {e}", exc_info=True)
     
+    def _roll_trading_day(self):
+        """Reset daily counters at the start of a new (local) day."""
+        today = datetime.now().date()
+        if today != self.trading_day:
+            self.trading_day = today
+            self.daily_realized_pnl = 0.0
+            self.daily_trades = {}
+            self.risk_manager.update_daily_pnl(0.0)
+
+    def _record_realized_pnl(self, pnl: float):
+        """Accumulate realized P&L so the daily drawdown kill switch works."""
+        self._roll_trading_day()
+        self.daily_realized_pnl += pnl
+        self.risk_manager.update_daily_pnl(self.daily_realized_pnl)
+        logger.info(f"Daily realized PnL: ${self.daily_realized_pnl:,.2f}")
+
     async def stop(self):
         """Stop the engine and cleanup resources."""
         logger.info("Stopping Multi-Symbol Trading Engine...")
