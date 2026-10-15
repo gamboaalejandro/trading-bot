@@ -23,6 +23,7 @@ from apps.live.portfolio_executor import (
     decision_bar,
     make_engine,
     next_run_time,
+    research_kill_state,
 )
 from apps.live.reconciliation import FuturesVenue, LiveState, LocalPosition, PaperVenue, SpotVenue
 from apps.research.engine.fills import ratchet_stop
@@ -462,3 +463,96 @@ def test_short_engine_reads_funding_from_futures(limits):
     assert {f"funding:{s}" for s in SYMS} <= set(data.calls)
     assert rep.weights["SOLUSDT"] <= 0 and rep.weights["BTCUSDT"] > 0     # BTC > SMA200: short gate off
     assert not [x for x in fut.writes() if x[0] == "market_order"]
+
+
+# --- kill-switch levels share the research apply_kill_switch ------------------------
+
+def _decision(limits, start, end):
+    ks = KillSwitch(limits)
+    ks.update(start, NOW - timedelta(minutes=4))
+    return ks, ks.update(end, NOW - timedelta(minutes=1))
+
+
+def test_decide_targets_flatten_follows_signal_exit_and_reductions(limits):
+    data = fixture_data()
+    panel = _panel(data)
+    strat, sizing = make_engine("T3")
+    flat = pd.Series(0.0, index=list(SYMS))
+    base = decide_targets(strat, panel, sizing, flat, None, day=DAY).w_final
+    assert base["BTCUSDT"] > 0 and base["SOLUSDT"] == 0
+    held = pd.Series({"BTCUSDT": base["BTCUSDT"] * 2.0, "ETHUSDT": 0.0, "SOLUSDT": 0.15})
+    ks, dec = _decision(limits, 1_100.0, 1_000.0)                        # -9 %: FLATTEN
+    assert ks.level == KillSwitchLevel.FLATTEN and dec.risk_multiplier == 0.0
+    st = research_kill_state(dec, limits)
+    assert st.level == "flatten_leveraged" and st.risk_mult == 1.0     # drawdown 9 % < 10 %: full risk
+    _, dec_dd = _decision(limits, 1_000.0, 880.0)                        # -12 %: FLATTEN + half risk
+    assert research_kill_state(dec_dd, limits).risk_mult == pytest.approx(0.5)
+    td = decide_targets(strat, panel, sizing, held, dec, day=DAY)
+    assert td.w_final["SOLUSDT"] == 0.0                                  # signal exit: the long is sold
+    assert td.w_final["BTCUSDT"] == pytest.approx(base["BTCUSDT"])      # cut toward the strategy target
+    # Never increases: a held long below the target stays at most at its held size.
+    small = pd.Series({"BTCUSDT": base["BTCUSDT"] * 0.5, "ETHUSDT": 0.0, "SOLUSDT": 0.0})
+    td = decide_targets(strat, panel, sizing, small, dec, day=DAY)
+    assert 0 < td.w_final["BTCUSDT"] <= small["BTCUSDT"] + 1e-12
+    # Shorts and leveraged longs are closed.
+    held = pd.Series({"BTCUSDT": base["BTCUSDT"], "ETHUSDT": -0.1, "SOLUSDT": 0.0})
+    td = decide_targets(strat, panel, sizing, held, dec, day=DAY, leverage={"BTCUSDT": 1.5})
+    assert td.w_final["ETHUSDT"] == 0.0 and td.w_final["BTCUSDT"] == 0.0
+
+
+def test_decide_targets_halt_closes_everything(limits):
+    data = fixture_data()
+    panel = _panel(data)
+    strat, sizing = make_engine("T3")
+    base = decide_targets(strat, panel, sizing, pd.Series(0.0, index=list(SYMS)), None, day=DAY).w_final
+    held = pd.Series({"BTCUSDT": base["BTCUSDT"], "ETHUSDT": -0.05, "SOLUSDT": 0.1})
+    ks, dec = _decision(limits, 1_000.0, 790.0)                          # drawdown 21 %: HALT
+    assert ks.level == KillSwitchLevel.HALT
+    td = decide_targets(strat, panel, sizing, held, dec, day=DAY)
+    assert (td.w_final == 0.0).all()
+
+
+def test_kill_switch_flatten_sells_spot_long_on_signal_exit(limits):
+    data = fixture_data()
+    spot = MockExchange("spot", data, cash=944.0, symbols=SYMS)       # NAV ~ 1000: stays at FLATTEN
+    spot.book["positions"]["SOLUSDT"] = 1.0                         # strategy target for SOL is 0
+    state = LiveState()
+    state.put(LocalPosition("SOLUSDT", "spot", 1.0))
+    spot.calls.clear()
+    ks = KillSwitch(limits)
+    ks.update(1_100.0, NOW - timedelta(minutes=4))
+    ks.update(1_000.0, NOW - timedelta(minutes=1))                    # -9 %: FLATTEN
+    rep = make_executor(make_cfg(), {"spot": spot}, limits, state=state, ks=ks).run(NOW)
+    assert rep.kill_level == "FLATTEN"
+    orders = [w for w in spot.writes() if w[0] == "market_order"]
+    assert len(orders) == 1 and orders[0][1:3] == ("SOLUSDT", "SELL")
+    assert rep.weights["SOLUSDT"] == 0.0
+    assert spot.positions().get("SOLUSDT", 0.0) == 0.0
+
+
+def test_kill_switch_halt_closes_all_positions(limits):
+    data = fixture_data()
+    spot = MockExchange("spot", data, cash=300.0, symbols=SYMS)
+    spot.book["positions"]["BTCUSDT"] = 0.001
+    fut = MockExchange("futures", data, cash=400.0, fee_rate=0.0005, symbols=SYMS)
+    fut.set_marks({"SOLUSDT": 100.0})
+    fut.market_order("SOLUSDT", "SELL", 1.0, "seed")                # existing short
+    state = LiveState()
+    state.put(LocalPosition("BTCUSDT", "spot", 0.001))
+    state.put(LocalPosition("SOLUSDT", "futures", -1.0))
+    spot.calls.clear()
+    fut.calls.clear()
+    ks = KillSwitch(limits)
+    ks.update(1_000.0, NOW - timedelta(minutes=4))
+    ks.update(790.0, NOW - timedelta(minutes=1))                      # drawdown 21 %: HALT
+    assert ks.level == KillSwitchLevel.HALT
+    cfg = make_cfg(shorts_on_futures=True)
+    rep = make_executor(cfg, {"spot": spot, "futures": fut}, limits, state=state, ks=ks).run(NOW)
+    assert rep.kill_level == "HALT"
+    assert all(w == 0 for w in rep.weights.values())
+    sells = [w for w in spot.writes() if w[0] == "market_order"]
+    assert len(sells) == 1 and sells[0][1:3] == ("BTCUSDT", "SELL")
+    buys = [w for w in fut.writes() if w[0] == "market_order"]
+    assert len(buys) == 1 and buys[0][1:3] == ("SOLUSDT", "BUY") and buys[0][5] is True
+    assert fut.positions() == {}
+    assert spot.positions().get("BTCUSDT", 0.0) == 0.0

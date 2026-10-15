@@ -205,18 +205,40 @@ def make_engine(engine: str):
     raise ExecutorError(f"unknown engine {engine!r} (expected {sorted(TREND_CONFIGS) + sorted(SHORT_CONFIGS)})")
 
 
-def research_kill_state(decision: Optional[KillSwitchDecision]) -> Optional[KillSwitchState]:
-    """Map the live kill-switch decision onto the research ``KillSwitchState``."""
+def research_kill_state(
+    decision: Optional[KillSwitchDecision],
+    limits: Optional[RiskLimits] = None,
+    risk: Optional[RiskConfig] = None,
+) -> Optional[KillSwitchState]:
+    """
+    Map the live kill-switch decision onto the research ``KillSwitchState``.
+
+    The research ``risk_mult`` only depends on the drawdown (half risk), while
+    the live ``risk_multiplier`` is 0 from FLATTEN up (no new exposure at all).
+    Using 0 there would turn every reduction into a full exit, so at FLATTEN /
+    HALT the drawdown multiplier is recomputed from the user thresholds
+    (``limits``, else ``risk``, else the ``RiskConfig`` defaults that mirror
+    ``config/risk_limits.yml``). ``apply_kill_switch`` then forbids increases
+    (FLATTEN) or closes everything (HALT) by itself.
+    """
     if decision is None:
         return None
+    lvl = KillSwitchLevel(decision.level)
     level = {
         KillSwitchLevel.NORMAL: "normal",
         KillSwitchLevel.BLOCK_ENTRIES: "block_entries",
         KillSwitchLevel.FLATTEN: "flatten_leveraged",
         KillSwitchLevel.HALT: "halted",
-    }[KillSwitchLevel(decision.level)]
-    return KillSwitchState(level, float(decision.risk_multiplier), float(decision.daily_return),
-                           float(decision.drawdown))
+    }[lvl]
+    mult = float(decision.risk_multiplier)
+    if lvl >= KillSwitchLevel.FLATTEN:
+        if limits is not None:
+            dd_half, half_mult = limits.kill_switch.drawdown_half_risk, limits.kill_switch.reduced_risk_multiplier
+        else:
+            rc = risk or RiskConfig()
+            dd_half, half_mult = rc.dd_half_risk, rc.half_risk_mult
+        mult = float(half_mult) if float(decision.drawdown) >= dd_half - 1e-12 else 1.0
+    return KillSwitchState(level, mult, float(decision.daily_return), float(decision.drawdown))
 
 
 # ---------------------------------------------------------------------------
@@ -313,10 +335,15 @@ def decide_targets(
     liquidation distance before a short (or a leveraged long) is opened or
     increased. Kill-switch:
 
-    - NORMAL / BLOCK_ENTRIES: ``apply_kill_switch`` of the research layer (risk
-      multiplier in drawdown, only reductions while entries are blocked);
-    - FLATTEN / HALT: shorts and leveraged positions go to 0, every other
-      position is kept as held (no new order at all, PLAN §7.6).
+    the live decision is mapped onto the research ``KillSwitchState`` and
+    ``apply_kill_switch`` + ``apply_band`` run exactly as in the backtest at
+    every level:
+
+    - NORMAL: risk multiplier only (half risk in drawdown);
+    - BLOCK_ENTRIES: only reductions toward the strategy target;
+    - FLATTEN: additionally shorts and leveraged positions go to 0; 1x longs
+      can still be reduced or exited toward the strategy target, never increased;
+    - HALT (drawdown stop): every position goes to 0 (full stop, PLAN §7.6).
 
     A symbol without bar ``day`` is frozen at its held weight. A per-symbol
     block (failed stop) only allows reductions. If the final vector still
@@ -403,24 +430,15 @@ def decide_targets(
             notes[s] = "liquidation check failed"
             w_new[s] = wh if np.sign(wh) == side else 0.0
 
-    state = research_kill_state(kill)
-    if state is None:
-        w_ks = w_new
-    elif state.flatten_leveraged:
-        keep = (held > 0) & (lev <= 1.0)
-        w_ks = held.where(keep, 0.0)
-    else:
-        w_ks = apply_kill_switch(w_new, held, state, lev).reindex(symbols)
-
-    if state is not None and state.flatten_leveraged:
-        w_final = w_ks.copy()
-    else:
-        max_abs = coin_vol_cap(e_q, sigma, sizing)
-        if state is not None and (state.risk_mult < 1 or state.entries_blocked):
-            max_abs = np.minimum(max_abs, w_ks.abs())
-        if overlay_cap is not None:
-            max_abs = np.minimum(max_abs, overlay_cap.reindex(symbols))
-        w_final = apply_band(w_ks, held, sizing.band, cfg=sizing, max_abs=max_abs).reindex(symbols)
+    # Same kill-switch + band sequence as the backtest (portfolio_bt step 7) at every level.
+    state = research_kill_state(kill, limits, risk)
+    w_ks = apply_kill_switch(w_new, held, state, lev).reindex(symbols) if state is not None else w_new
+    max_abs = coin_vol_cap(e_q, sigma, sizing)
+    if state is not None and (state.risk_mult < 1 or state.entries_blocked):
+        max_abs = np.minimum(max_abs, w_ks.abs())
+    if overlay_cap is not None:
+        max_abs = np.minimum(max_abs, overlay_cap.reindex(symbols))
+    w_final = apply_band(w_ks, held, sizing.band, cfg=sizing, max_abs=max_abs).reindex(symbols)
 
     for s in frozen:
         w_final[s] = held[s]
