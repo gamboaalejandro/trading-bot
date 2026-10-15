@@ -8,7 +8,7 @@ paths:
   # Relative paths are resolved against the repository root.
   trials_log: data/trials/trials.jsonl
   holdout_lock: data/trials/holdout.lock
-  reports_dir: reports/research
+  reports_dir: docs/research/results
 
 # Provenance of the local CSVs (PLAN §5.2.7, harness data README).
 data_sources:
