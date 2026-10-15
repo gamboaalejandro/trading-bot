@@ -293,6 +293,51 @@ class TestnetConnector:
         
         return order
     
+    async def replace_stop_loss(
+        self,
+        symbol: str,
+        cancel_order_id: str,
+        side: str,
+        amount: float,
+        stop_price: float
+    ) -> Dict[str, Any]:
+        """
+        Move a stop loss with POST /api/v3/order/cancelReplace (STOP_ON_FAILURE).
+
+        Args:
+            symbol: Trading pair
+            cancel_order_id: orderId of the stop being replaced
+            side: 'buy' or 'sell' (opposite of position side)
+            amount: Quantity
+            stop_price: New stop trigger price
+
+        Returns:
+            The new order response (contains orderId)
+
+        Raises:
+            CancelReplaceError: see BinanceClient.cancel_replace_order
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        binance_symbol = symbol.replace('/', '')
+        amount = await asyncio.to_thread(self.client.round_quantity, binance_symbol, amount)
+        stop_price = await asyncio.to_thread(self.client.round_price, binance_symbol, stop_price)
+
+        result = await asyncio.to_thread(
+            self.client.cancel_replace_order,
+            symbol=binance_symbol,
+            cancel_order_id=int(cancel_order_id),
+            side=side.upper(),
+            order_type='STOP_LOSS',
+            quantity=amount,
+            stop_price=stop_price,
+            cancel_replace_mode='STOP_ON_FAILURE'
+        )
+        new_order = result.get('newOrderResponse') or {}
+        logger.info(f"[OK] Stop loss moved: {cancel_order_id} -> {new_order.get('orderId')} @ ${stop_price}")
+        return new_order
+
     async def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         """Cancel an order."""
         if not self._initialized:

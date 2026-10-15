@@ -26,8 +26,10 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import os
 import json
+import time
 
-from core.config import settings
+from core.config import settings, resolve_settings_mode, ExecutionMode, TradingModeError
+from core.binance_client import CancelReplaceError
 from apps.executor.testnet_connector import TestnetConnector
 from apps.executor.account_manager import AccountManager
 from apps.executor.risk_manager import ProfessionalRiskManager, RiskConfig
@@ -55,6 +57,15 @@ STATE_FILE = os.getenv('ENGINE_STATE_FILE', 'state/open_positions.json')
 EMA_TREND_PERIOD = 200  # Trend filter in StrategyManager
 CANDLE_BUFFER = 50      # Extra candles so rolling indicators are warmed up
 
+# Exchange stop management: a failed stop placement/move is retried after
+# each delay (seconds). The longest a position can stay without an exchange
+# stop in the cancel-replace path is bounded by sum(delays) + request time,
+# which must stay under MAX_UNPROTECTED_SECONDS.
+STOP_RETRY_DELAYS = (0.5, 1.0, 2.0)
+MAX_UNPROTECTED_SECONDS = 10.0
+STOP_REARM_INTERVAL_SECONDS = 30.0  # monitor loop re-arms unprotected positions
+BINANCE_UNKNOWN_ORDER = -2011
+
 
 def timeframe_to_seconds(timeframe: str) -> int:
     """Convert a Binance interval ('1m', '4h', '1d', '1w') to seconds."""
@@ -65,6 +76,14 @@ def timeframe_to_seconds(timeframe: str) -> int:
 def base_asset(symbol: str) -> str:
     """'BTC/USDT' -> 'BTC'."""
     return symbol.split('/')[0]
+
+
+def _same_price(exchange_price, target: float, rel_tol: float = 1e-4) -> bool:
+    """True if an exchange price (tick-rounded string) matches target."""
+    try:
+        return abs(float(exchange_price) - target) <= rel_tol * max(abs(target), 1e-12)
+    except (TypeError, ValueError):
+        return False
 
 
 def fill_summary(order: Dict, base: str) -> tuple:
@@ -103,7 +122,7 @@ class MultiSymbolEngine:
         self,
         symbols: List[str] = None,
         use_testnet: bool = True,
-        dry_run: bool = False
+        dry_run: bool = True
     ):
         """
         Initialize multi-symbol trading engine.
@@ -111,7 +130,7 @@ class MultiSymbolEngine:
         Args:
             symbols: List of symbols to trade (defaults to safe_list active)
             use_testnet: Use testnet or production
-            dry_run: If True, don't execute real orders
+            dry_run: If True (default), don't execute real orders
         """
         self.symbols = symbols or get_active_symbols()
         self.use_testnet = use_testnet
@@ -173,6 +192,11 @@ class MultiSymbolEngine:
         self.zmq_context = zmq.asyncio.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.SUB)
         
+        # Exchange stop bookkeeping and operator alerts
+        self.stop_retry_delays = STOP_RETRY_DELAYS
+        self.alerts: List[Dict[str, str]] = []
+        self._last_stop_rearm: Dict[str, float] = {}
+
         # Control
         self.running = False
         self.tick_count = 0  # Contador para debugging
@@ -716,6 +740,11 @@ class MultiSymbolEngine:
                             continue
                         
                         current_price = ticker['last']
+
+                        # A position must never stay without its exchange stop
+                        if not self.dry_run and not position.get('stop_order_id'):
+                            await self._rearm_stop_if_due(symbol)
+
                         entry_price = position['entry_price']
                         take_profit = position['take_profit']
                         stop_loss = position['stop_loss']
@@ -943,16 +972,60 @@ class MultiSymbolEngine:
         except Exception as e:
             logger.error(f"Could not save {STATE_FILE}: {e}")
 
+    def _alert(self, message: str):
+        """Raise an operator alert (CRITICAL log + in-memory record)."""
+        logger.critical(f"[ALERT] {message}")
+        self.alerts.append({'time': datetime.now().isoformat(), 'message': message})
+
+    def _retry_schedule(self):
+        """Delays before each attempt: first attempt immediately, then the retries."""
+        return (0.0,) + tuple(self.stop_retry_delays)
+
+    async def _find_open_stop(self, symbol: str) -> Optional[Dict]:
+        """Return an open SELL STOP_LOSS order for symbol on the exchange, if any."""
+        try:
+            orders = await self.connector.get_positions(symbol)
+        except Exception as e:
+            logger.warning(f"{symbol} - Could not list open orders: {e}")
+            return None
+        for order in orders or []:
+            if order.get('side') == 'SELL' and str(order.get('type', '')).startswith('STOP_LOSS'):
+                return order
+        return None
+
     async def _place_exchange_stop(self, symbol: str, quantity: float, stop_price: float):
-        """Place a STOP_LOSS sell order for a long position. Returns order id or None."""
+        """
+        Place a STOP_LOSS sell order for a long position, with retries.
+
+        Before every retry the open orders are checked, so a stop placed by
+        an attempt whose answer got lost is adopted instead of duplicated.
+        Returns the order id, or None (after an alert) if the position is
+        left without an exchange stop.
+        """
         if self.dry_run:
             return None
-        try:
-            order = await self.connector.create_stop_loss(symbol, 'sell', quantity, stop_price)
-            return order.get('orderId')
-        except Exception as e:
-            logger.error(f"{symbol} - Could not place exchange stop (client-side stop still active): {e}")
-            return None
+        last_error = None
+        attempts = 0
+        for attempt, delay in enumerate(self._retry_schedule()):
+            attempts = attempt + 1
+            if delay:
+                await asyncio.sleep(delay)
+            if attempt > 0:
+                existing = await self._find_open_stop(symbol)
+                if existing:
+                    logger.warning(f"{symbol} - Adopting existing exchange stop {existing.get('orderId')}")
+                    return existing.get('orderId')
+            try:
+                order = await self.connector.create_stop_loss(symbol, 'sell', quantity, stop_price)
+                return order.get('orderId')
+            except Exception as e:
+                last_error = e
+                logger.error(f"{symbol} - Stop placement attempt {attempts} failed: {e}")
+        self._alert(
+            f"{symbol} - position WITHOUT exchange stop after {attempts} attempts "
+            f"(client-side stop at {stop_price} still active): {last_error}"
+        )
+        return None
 
     async def _cancel_exchange_stop(self, symbol: str):
         """Cancel the position's exchange stop, if any."""
@@ -966,15 +1039,100 @@ class MultiSymbolEngine:
             logger.warning(f"{symbol} - Could not cancel stop order {order_id}: {e}")
         position['stop_order_id'] = None
 
-    async def _move_exchange_stop(self, symbol: str):
-        """Replace the exchange stop after a trailing/breakeven update."""
+    async def _rearm_stop_if_due(self, symbol: str):
+        """Place a missing exchange stop, at most once every STOP_REARM_INTERVAL_SECONDS."""
+        now = time.monotonic()
+        last = self._last_stop_rearm.get(symbol)
+        if last is not None and now - last < STOP_REARM_INTERVAL_SECONDS:
+            return
+        self._last_stop_rearm[symbol] = now
         position = self.open_positions[symbol]
-        if position.get('stop_order_id'):
-            await self._cancel_exchange_stop(symbol)
-            position['stop_order_id'] = await self._place_exchange_stop(
-                symbol, position['quantity'], position['stop_loss']
-            )
+        logger.warning(f"{symbol} - No exchange stop on record, re-arming")
+        position['stop_order_id'] = await self._place_exchange_stop(
+            symbol, position['quantity'], position['stop_loss']
+        )
         self._save_state()
+
+    async def _replace_lost_stop(self, symbol: str, reason: str):
+        """The exchange stop is gone: alert and place a fresh one (with retries)."""
+        position = self.open_positions[symbol]
+        position['stop_order_id'] = None
+        self._save_state()
+        self._alert(f"{symbol} - position unprotected on the exchange ({reason}); placing a new stop")
+        position['stop_order_id'] = await self._place_exchange_stop(
+            symbol, position['quantity'], position['stop_loss']
+        )
+        self._save_state()
+
+    async def _move_exchange_stop(self, symbol: str):
+        """
+        Move the exchange stop after a trailing/breakeven update.
+
+        Uses POST /api/v3/order/cancelReplace with STOP_ON_FAILURE, so the
+        old stop is only cancelled if the new one can be attempted:
+        - both legs succeed: track the new order id;
+        - cancel failed (STOP_ON_FAILURE): the old stop is intact; retry;
+        - cancel succeeded but the new stop was rejected, or the old stop no
+          longer exists (-2011): the position is unprotected -> alert and
+          place a fresh stop with retries;
+        - unknown outcome (timeout / 5xx): reconcile with the open orders.
+        If every retry fails the old stop stays at its previous level and an
+        alert is raised (the client-side stop keeps the new level).
+        """
+        position = self.open_positions[symbol]
+        if self.dry_run:
+            self._save_state()
+            return
+
+        quantity = position['quantity']
+        stop_price = position['stop_loss']
+        old_id = position.get('stop_order_id')
+        if not old_id:
+            position['stop_order_id'] = await self._place_exchange_stop(symbol, quantity, stop_price)
+            self._save_state()
+            return
+
+        last_error = None
+        attempts = 0
+        for attempt, delay in enumerate(self._retry_schedule()):
+            attempts = attempt + 1
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                new_order = await self.connector.replace_stop_loss(
+                    symbol, str(old_id), 'sell', quantity, stop_price
+                )
+                position['stop_order_id'] = new_order.get('orderId')
+                self._save_state()
+                return
+            except CancelReplaceError as e:
+                last_error = e
+                if e.cancel_succeeded:
+                    await self._replace_lost_stop(symbol, f"stop {old_id} cancelled, new stop rejected: {e}")
+                    return
+                if e.cancel_error_code == BINANCE_UNKNOWN_ORDER:
+                    await self._replace_lost_stop(symbol, f"stop {old_id} no longer exists: {e}")
+                    return
+                if e.outcome_unknown:
+                    existing = await self._find_open_stop(symbol)
+                    if existing is None:
+                        await self._replace_lost_stop(symbol, f"unknown cancelReplace outcome: {e}")
+                        return
+                    old_id = existing.get('orderId')
+                    position['stop_order_id'] = old_id
+                    self._save_state()
+                    if _same_price(existing.get('stopPrice'), stop_price):
+                        return  # the replace went through, only the answer was lost
+                logger.error(f"{symbol} - Stop move attempt {attempts} failed: {e}")
+            except Exception as e:
+                last_error = e
+                logger.error(f"{symbol} - Stop move attempt {attempts} failed: {e}")
+
+        self._save_state()
+        self._alert(
+            f"{symbol} - could not move exchange stop to {stop_price} after {attempts} attempts; "
+            f"stop {old_id} stays at its previous level (client-side stop active): {last_error}"
+        )
 
     def _roll_trading_day(self):
         """Reset daily counters at the start of a new (local) day."""
@@ -1004,12 +1162,41 @@ class MultiSymbolEngine:
         logger.info("Engine stopped")
 
 
+def resolve_engine_mode(cfg=None) -> ExecutionMode:
+    """
+    Resolve the execution mode of the spot engine from settings.
+
+    dry_run is the default; live needs LIVE_TRADING_CONFIRM=I_UNDERSTAND; 1m
+    profiles are forced to dry_run unless ALLOW_1M_LIVE=true. The legacy
+    USE_TESTNET flag is ignored: the network follows TRADING_MODE.
+
+    Raises:
+        TradingModeError: invalid mode, unconfirmed live, or futures_testnet
+            (this engine only trades spot).
+    """
+    cfg = cfg or settings
+    mode = resolve_settings_mode(cfg)
+    if mode.mode == 'futures_testnet':
+        raise TradingModeError(
+            "multi_symbol_engine is a spot engine; TRADING_MODE=futures_testnet is not supported here"
+        )
+    return mode
+
+
 async def main():
     """Main entry point."""
-    # Get symbols from safe_list
+    mode = resolve_engine_mode()
+    logger.info(
+        f"TRADING_MODE requested={mode.requested} effective={mode.mode} "
+        f"(dry_run={mode.dry_run}, testnet={mode.use_testnet})"
+    )
+    if mode.reason:
+        logger.warning(f"Execution mode downgraded: {mode.reason}")
+
+    # Symbols come from safe_list
     engine = MultiSymbolEngine(
-        use_testnet=settings.USE_TESTNET,
-        dry_run=settings.DRY_RUN
+        use_testnet=mode.use_testnet,
+        dry_run=mode.dry_run
     )
     
     await engine.start()

@@ -65,8 +65,11 @@ BINANCE_TESTNET_API_KEY=your_testnet_key
 BINANCE_TESTNET_SECRET=your_testnet_secret
 USE_TESTNET=true
 
-# Modo simulación (NO ejecuta órdenes reales)
-DRY_RUN=true
+# Modo de ejecución: dry_run (por defecto) | spot_demo | futures_testnet | live
+TRADING_MODE=dry_run
+# live exige además LIVE_TRADING_CONFIRM=I_UNDERSTAND
+# Los perfiles de 1m (timeframe < 15m) se fuerzan a dry_run salvo ALLOW_1M_LIVE=true
+# DRY_RUN=true (legado) solo puede forzar dry_run; USE_TESTNET se ignora en el motor
 
 # Perfil de trading
 TRADING_PROFILE=conservative  # conservative | moderate | advanced

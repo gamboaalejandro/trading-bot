@@ -1,6 +1,9 @@
 """
 Trading Profiles Configuration
 Defines risk/reward parameters per user profile
+
+All these profiles run on DEFAULT_TIMEFRAME=1m. 1m profiles never send
+orders unless ALLOW_1M_LIVE=true (see core.config.resolve_trading_mode).
 """
 from dataclasses import dataclass
 from typing import Dict
