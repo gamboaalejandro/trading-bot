@@ -466,7 +466,8 @@ def exp_e0(runner: Runner) -> list[Path]:
             continue
         frames.append(f)
         gaps = f.index.to_series().diff().dropna()
-        frows.append({"symbol": s, "status": "ok", "n": int(len(f)), "median": float(f.median()),
+        frows.append({"symbol": s, "status": "ok", "n": int(len(f)), "median_bps": float(f.median()) * 1e4,
+                      "mean_apr": float(f.mean()) * 3 * 365,
                       "share_zero": float((f == 0).mean()), "share_1e-4": float((f.round(8) == 1e-4).mean()),
                       "share_8h": float((gaps == pd.Timedelta(hours=8)).mean()),
                       "other_intervals": int((gaps != pd.Timedelta(hours=8)).sum()),
