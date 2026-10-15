@@ -122,7 +122,12 @@ class MomentumStrategy(BaseStrategy):
             self.logger.warning("Indicators contain NaN values")
             return None
         
-        # Detect crossover
+        # Detect crossover between the last two closed candles (stateless, so
+        # it does not depend on how often generate_signal is called)
+        self.prev_fast_ma = df['fast_ma'].iloc[-2]
+        self.prev_slow_ma = df['slow_ma'].iloc[-2]
+        if pd.isna(self.prev_fast_ma) or pd.isna(self.prev_slow_ma):
+            return None
         crossover = self.detect_crossover(fast_ma, slow_ma)
         
         # DEBUG: Log exact values
