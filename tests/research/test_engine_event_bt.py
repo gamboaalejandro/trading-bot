@@ -254,3 +254,109 @@ def test_real_btc_futures_4h_runs_with_costs_and_funding():
     expected = 10_000 - (tr["qty"] * tr["ref_price"]).sum() + mtm - tot["commission"] - tot["slippage"] \
         + tot["funding"]
     assert res.equity.iloc[-1] == pytest.approx(expected, rel=1e-12)
+
+
+# --------------------------------------------------------------------------- no look-ahead at the fill bar
+NB_LONG = 6 * 40          # 40 days: enough closed days for qv30 and the ATR slippage tiers
+I_DECIDE = 6 * 35 + 4     # 16:00 bar of day 35
+I_FILL = I_DECIDE + 1     # 20:00 bar: the last 4h bar of the UTC day (closes with day 35)
+
+
+def perturb_fill_bar(df, how, i=I_FILL):
+    """Change what is only known after open[i]: the bar's high, low or volume."""
+    df = df.copy()
+    o = df["open"].iloc[i]
+    column, value = {"high": ("high", o * 3.0), "low": ("low", o * 0.6), "volume": ("volume", 1e3)}[how]
+    df.iloc[i, df.columns.get_loc(column)] = value
+    return df
+
+
+@pytest.mark.parametrize("how", ["high", "low", "volume"])
+def test_entry_fill_ignores_the_range_and_volume_of_the_fill_bar(how):
+    base = bars_4h(NB_LONG)
+    plan = {I_DECIDE: [OrderIntent("SOLUSDT", "BUY", target_weight=0.1, stop_price=40.0)]}
+    ref, _ = run(base, plan, fixed_slip_bps=None)
+    alt, _ = run(perturb_fill_bar(base, how), plan, fixed_slip_bps=None)
+    assert len(ref.trades) == len(alt.trades) == 1
+    assert ref.trades["time"].iloc[0] == base.index[I_FILL]
+    assert ref.trades["price"].iloc[0] > 100.0          # tiered slippage is really applied
+    assert alt.trades["price"].iloc[0] == ref.trades["price"].iloc[0]
+    assert alt.trades["qty"].iloc[0] == ref.trades["qty"].iloc[0]
+
+
+@pytest.mark.parametrize("how", ["high", "low", "volume"])
+def test_market_exit_and_stop_slippage_ignore_the_fill_bar(how):
+    base = bars_4h(NB_LONG)
+    # Market exit decided at 16:00 and filled at open[20:00].
+    plan = {I_DECIDE - 6: [OrderIntent("SOLUSDT", "BUY", target_weight=0.1, stop_price=40.0)],
+            I_DECIDE: [OrderIntent("SOLUSDT", "SELL", reduce_only=True)]}
+    ref, _ = run(base, plan, fixed_slip_bps=None)
+    alt, _ = run(perturb_fill_bar(base, how), plan, fixed_slip_bps=None)
+    r0, r1 = ref.meta["round_trips"].iloc[0], alt.meta["round_trips"].iloc[0]
+    assert r0["exit_time"] == r1["exit_time"] == base.index[I_FILL]
+    assert r1["exit_price"] == r0["exit_price"]
+    # Resting stop hit inside the 20:00 bar (gap-aware: raw fill at the stop level).
+    plan = {I_DECIDE - 6: [OrderIntent("SOLUSDT", "BUY", target_weight=0.1, stop_price=98.5)]}
+    hit = base.copy()
+    hit.iloc[I_FILL, hit.columns.get_loc("low")] = 95.0
+    ref, _ = run(hit, plan, fixed_slip_bps=None)
+    alt, _ = run(perturb_fill_bar(hit, how), plan, fixed_slip_bps=None)
+    r0, r1 = ref.meta["round_trips"].iloc[0], alt.meta["round_trips"].iloc[0]
+    assert r0["exit_reason"] == r1["exit_reason"] == "stop"
+    assert r0["exit_time"] == r1["exit_time"] == base.index[I_FILL]
+    assert r0["exit_price"] < 98.5                       # double slippage below the stop
+    assert r1["exit_price"] == r0["exit_price"]
+
+
+def test_liquidation_check_ignores_the_wick_of_the_fill_bar():
+    base = bars_4h(NB_LONG)
+    funding = pd.Series(0.0, index=pd.date_range(base.index[0], base.index[-1], freq="8h", tz="UTC"))
+    plan = {I_DECIDE: [OrderIntent("SOLUSDT", "SELL", target_weight=0.1, stop_price=105.0)]}
+    kw = dict(market="futures", funding={"SOLUSDT": funding}, risk=RiskConfig(), fixed_slip_bps=None)
+    ref, _ = run(base, plan, **kw)
+    # The fill bar spikes to 3x the open: a wick that would liquidate a 1x short, but it is
+    # unknown at the open where the pre-trade check runs.
+    alt, _ = run(perturb_fill_bar(base, "high"), plan, **kw)
+    assert ref.meta["counters"]["rejected_liq"] == alt.meta["counters"]["rejected_liq"] == 0
+    assert ref.meta["counters"]["entries"] == alt.meta["counters"]["entries"] == 1
+    assert alt.trades["price"].iloc[0] == ref.trades["price"].iloc[0]
+
+
+# --------------------------------------------------------------------------- truncated daily / funding
+class Peek:
+    """Asserts inside on_bar that the daily and funding context never reach past t + tf."""
+
+    name = "peek"
+    params: dict = {}
+    n_free_params = 0
+
+    def __init__(self, tf):
+        self.tf = pd.Timedelta(tf)
+        self.checked = 0
+
+    def on_bar(self, t, bars, ctx):
+        close = t + self.tf
+        for s in bars:
+            d, f = ctx.daily[s], ctx.funding[s]
+            if len(d):
+                assert d.index.max() + pd.Timedelta(days=1) <= close
+            assert len(f) and f.index.max() <= close
+            # Nothing available is hidden either.
+            assert len(d) == int((ctx._daily[s].index + pd.Timedelta(days=1) <= close).sum())
+            assert len(f) == int((ctx._funding[s].index <= close).sum())
+            pd.testing.assert_frame_equal(ctx.daily_history(s), d)
+            pd.testing.assert_frame_equal(ctx.daily_history(s, 2), d.iloc[-2:])
+            pd.testing.assert_series_equal(ctx.funding_history(s), f)
+            self.checked += 1
+        return []
+
+
+@pytest.mark.parametrize("tf", ["4h", "1h"])
+def test_context_daily_and_funding_are_truncated_at_the_bar_close(tf):
+    idx = pd.date_range("2024-01-01", periods=24 * 6 // (4 if tf == "4h" else 1), freq=tf, tz="UTC")
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1e6}, index=idx)
+    funding = pd.Series(1e-4, index=pd.date_range(idx[0], idx[-1] + pd.Timedelta(days=2), freq="8h", tz="UTC"))
+    strat = Peek(tf)
+    run_event_bt(strat, {"SOLUSDT": df}, "futures", ZERO, RiskConfig(), daily={"SOLUSDT": to_daily(df)},
+                 funding={"SOLUSDT": funding}, fixed_slip_bps=0.0)
+    assert strat.checked == len(df) - 1

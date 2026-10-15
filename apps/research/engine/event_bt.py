@@ -32,10 +32,15 @@ Rules enforced by the engine, whatever the strategy asks:
   liquidation-distance check with the worst historical wick of the CLOSED
   daily bars. BNBUSDT is never traded as a perp.
 
-Daily context: every intraday bar sees the last 1d bar whose close is at or
-before the intraday bar's close (``merge_asof`` backward on availability
-times, :func:`merge_daily_asof`). The 4h bar 20:00-24:00 sees the day that
-closes at 24:00; the 16:00-20:00 bar still sees the previous day.
+Daily context: the strategy, deciding at the close of ``t``, sees the last 1d
+bar whose close is at or before ``t + tf`` (``merge_asof`` backward on
+availability times, :func:`merge_daily_asof`). The 4h bar 20:00-24:00 sees the
+day that closes at 24:00; the 16:00-20:00 bar still sees the previous day.
+
+Execution inputs (slippage tier, ``qv30`` tradability, worst wick for the
+liquidation check) of a fill at ``open[t]`` use the daily context available
+at that open, i.e. days with ``D + 1 day <= t``. They never include the range
+or volume of the bar being filled (no look-ahead into the fill bar).
 """
 from __future__ import annotations
 
@@ -204,7 +209,9 @@ def run_event_bt(
         times = times.union(panel[s].index)
     tf = pd.Timedelta(tf) if tf is not None else infer_tf(times)
 
-    # Closed-day context per intraday bar: OHLCV, slippage inputs and worst wicks.
+    # Closed-day context per intraday bar. ``frames`` (strategy view) is merged on the bar's
+    # close ``t + tf``; ``ctx_in`` (execution inputs: slippage, qv30, worst wicks) on its open
+    # ``t``, so a fill at open[t] never uses a daily bar that contains bar t itself.
     frames, ctx_in = {}, {}
     for s in symbols:
         d = daily[s]
@@ -212,7 +219,7 @@ def run_event_bt(
         extra["wick_long"] = worst_wick(d, 1)
         extra["wick_short"] = worst_wick(d, -1)
         frames[s] = merge_daily_asof(panel[s], d, tf).reindex(times)
-        ctx_in[s] = merge_daily_asof(panel[s][[]], extra, tf, prefix="").reindex(times)
+        ctx_in[s] = merge_daily_asof(panel[s][[]], extra, pd.Timedelta(0), prefix="").reindex(times)
     O = pd.DataFrame({s: frames[s]["open"] for s in symbols}).astype(float).to_numpy()
     H = pd.DataFrame({s: frames[s]["high"] for s in symbols}).astype(float).to_numpy()
     Lw = pd.DataFrame({s: frames[s]["low"] for s in symbols}).astype(float).to_numpy()
@@ -226,7 +233,8 @@ def run_event_bt(
 
     ctx = ctx or Context(market=market)
     ctx.frames = {s: frames[s].loc[panel[s].index] for s in symbols}
-    ctx.daily = dict(daily)
+    ctx.tf = tf
+    ctx.daily = {s: daily[s] for s in symbols}          # truncated at t + tf by Context
     ctx.funding = funding if market == "futures" else {}
     pos_end = {s: ctx.frames[s].index for s in symbols}
 
@@ -244,6 +252,7 @@ def run_event_bt(
     fmult = cost.funding_mult
 
     def inp(s: str, gi: int) -> dict:
+        """Execution inputs known at open[times[gi]] (daily bars closed by that open)."""
         return ctx_in[s].iloc[gi].to_dict()
 
     def close_pos(s: str, t, day, ref: float, slip: float, reason: str, qty: Optional[float] = None) -> None:

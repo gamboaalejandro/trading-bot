@@ -14,13 +14,15 @@ Two kinds of strategies exist:
   engine executes at the next bar's open.
 
 Strategies never see future data: the engine hands them a :class:`Context`
-whose :meth:`Context.history` is truncated at the current bar.
+whose :meth:`Context.history`, :meth:`Context.daily_history` and
+:meth:`Context.funding_history` (and the ``daily`` / ``funding`` mapping views)
+are truncated at what is available at the close of the current bar.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, Optional, Protocol, runtime_checkable
+from typing import Any, Iterator, Literal, Mapping, Optional, Protocol, runtime_checkable
 
 import pandas as pd
 
@@ -35,6 +37,7 @@ __all__ = [
 
 Side = Literal["BUY", "SELL"]
 OrderType = Literal["MARKET", "LIMIT"]
+ONE_DAY = pd.Timedelta(days=1)
 
 
 class OrderIntentError(ValueError):
@@ -121,26 +124,98 @@ class Position:
     bars_held: int = 0
 
 
+class _AvailableView(Mapping):
+    """
+    Read-only mapping whose values are truncated to the rows available at ``cutoff``.
+
+    A row labelled ``x`` is available when ``x + lag <= cutoff`` (``lag`` is 1 day
+    for daily bars, labelled by their open, and 0 for funding settlements).
+    ``cutoff=None`` returns the full objects (vectorized engines, no clock).
+    """
+
+    __slots__ = ("_src", "_cutoff", "_lag")
+
+    def __init__(self, src: Mapping, cutoff: Optional[pd.Timestamp], lag: pd.Timedelta):
+        self._src = src
+        self._cutoff = cutoff
+        self._lag = lag
+
+    def __getitem__(self, key):
+        obj = self._src[key]
+        if self._cutoff is None or obj is None:
+            return obj
+        end = int(obj.index.searchsorted(self._cutoff - self._lag, side="right"))
+        return obj.iloc[:end]
+
+    def __iter__(self) -> Iterator:
+        return iter(self._src)
+
+    def __len__(self) -> int:
+        return len(self._src)
+
+    def __repr__(self) -> str:
+        return f"_AvailableView(keys={list(self._src)}, cutoff={self._cutoff})"
+
+
 @dataclass
 class Context:
     """
     Information available to a strategy at the close of bar ``t``.
 
     ``history(symbol)`` returns the symbol's frame truncated at ``t`` (inclusive),
-    so a strategy cannot look ahead. ``daily`` holds closed 1d bars (event
-    engine) and ``funding`` the settlement series (perps only, never BNBUSDT).
+    so a strategy cannot look ahead. ``daily_history(symbol)`` returns the 1d
+    bars closed by ``t + tf`` (``D + 1 day <= t + tf``) and
+    ``funding_history(symbol)`` the settlements with ``tau <= t + tf`` (perps
+    only, never BNBUSDT). The ``daily`` and ``funding`` attributes are
+    read-only mapping views with the same truncation; assigning to them sets
+    the full source data (kept private). With ``t=None`` (vectorized engines,
+    no clock) nothing is truncated.
     """
 
     market: Literal["spot", "futures"]
     t: Optional[pd.Timestamp] = None
     nav: float = float("nan")
     positions: Mapping[str, Position] = field(default_factory=dict)
-    funding: Mapping[str, pd.Series] = field(default_factory=dict)
-    daily: Mapping[str, pd.DataFrame] = field(default_factory=dict)
     kill_switch: Any = None
     params: dict = field(default_factory=dict)
     frames: Mapping[str, pd.DataFrame] = field(default_factory=dict, repr=False)
+    tf: Optional[pd.Timedelta] = None
     _pos: dict = field(default_factory=dict, repr=False)
+    _daily: Mapping[str, pd.DataFrame] = field(default_factory=dict, repr=False)
+    _funding: Mapping[str, pd.Series] = field(default_factory=dict, repr=False)
+
+    def _cutoff(self) -> Optional[pd.Timestamp]:
+        """Close time of bar ``t`` (``t + tf``); ``t`` itself when ``tf`` is unknown."""
+        if self.t is None:
+            return None
+        return self.t + (pd.Timedelta(self.tf) if self.tf is not None else pd.Timedelta(0))
+
+    @property
+    def daily(self) -> Mapping[str, pd.DataFrame]:
+        """Closed 1d bars per symbol, truncated at ``D + 1 day <= t + tf``."""
+        return _AvailableView(self._daily, self._cutoff(), ONE_DAY)
+
+    @daily.setter
+    def daily(self, value: Mapping[str, pd.DataFrame]) -> None:
+        self._daily = dict(value or {})
+
+    @property
+    def funding(self) -> Mapping[str, pd.Series]:
+        """Funding settlements per symbol, truncated at ``tau <= t + tf``."""
+        return _AvailableView(self._funding, self._cutoff(), pd.Timedelta(0))
+
+    @funding.setter
+    def funding(self, value: Mapping[str, pd.Series]) -> None:
+        self._funding = dict(value or {})
+
+    def daily_history(self, symbol: str, n: Optional[int] = None) -> pd.DataFrame:
+        """1d bars of ``symbol`` closed by ``t + tf`` (the last ``n`` if given)."""
+        out = self.daily[symbol]
+        return out if n is None else out.iloc[-n:]
+
+    def funding_history(self, symbol: str) -> pd.Series:
+        """Funding settlements of ``symbol`` with ``tau <= t + tf``."""
+        return self.funding[symbol]
 
     def history(self, symbol: str, n: Optional[int] = None) -> pd.DataFrame:
         """Bars of ``symbol`` up to and including ``t`` (the last ``n`` if given)."""
