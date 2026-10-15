@@ -11,6 +11,9 @@ Common portfolio construction, layer D (PLAN.md §2.0, §7.3). Fixed a priori, 0
    ``|w_i| <= |E_q,i| * min(sigma*_coin / sigma_90,i, 1)`` with sigma*_coin = 25 %.
 6. No-trade band: rebalance symbol i only if
    ``|w_new - w_held| > b * max(|w_held|, |w_new|)`` or the position opens/closes.
+   Keeping held weights can break the caps (e.g. held majors plus a new alt
+   push gross long above 1x), so the caps are enforced again on the banded
+   vector: held symbols that cause a breach are sent to ``w_new``.
 
 All the caps only scale weights down, so the final weights satisfy every cap.
 The same code runs in the backtest and in the live executor.
@@ -31,6 +34,7 @@ __all__ = [
     "annualized_vol",
     "ewma_corr",
     "stress_cov",
+    "coin_vol_cap",
     "target_weights",
     "apply_band",
 ]
@@ -160,6 +164,19 @@ def _scale_group(w: pd.Series, mask: pd.Series, cap: float) -> pd.Series:
     return w
 
 
+def coin_vol_cap(E_q: pd.Series, sigma: pd.Series, cfg: SizingConfig) -> pd.Series:
+    """
+    Per-coin vol cap ``|E_q,i| * min(sigma*_coin / sigma_90,i, 1)`` (last cap of PLAN §2.0).
+
+    Symbols with ``E_q`` 0/NaN or without a valid volatility get 0.
+    """
+    e = E_q.astype(float).fillna(0.0).clip(-1.0, 1.0)
+    sig = sigma.reindex(E_q.index).astype(float)
+    valid = (e != 0) & np.isfinite(sig) & (sig > 0)
+    ratio = np.minimum(cfg.sigma_coin_target / sig.where(valid, np.inf), 1.0)
+    return (e.abs() * ratio).where(valid, 0.0)
+
+
 def target_weights(E_q: pd.Series, sigma: pd.Series, cov_s: np.ndarray, cfg: SizingConfig) -> pd.Series:
     """
     Target portfolio weights for one rebalance date (layer D, PLAN §2.0).
@@ -202,21 +219,59 @@ def target_weights(E_q: pd.Series, sigma: pd.Series, cov_s: np.ndarray, cfg: Siz
     w = _scale_group(w, is_alt & (w > 0), cfg.alt_long_cap)
     w = _scale_group(w, w > 0, cfg.gross_long_cap)
     w = _scale_group(w, w < 0, cfg.gross_short_cap)
-    coin_vol_cap = e.abs() * np.minimum(cfg.sigma_coin_target / sig.where(active, np.inf), 1.0)
-    w = w.clip(lower=-coin_vol_cap, upper=coin_vol_cap)
+    vol_cap = coin_vol_cap(e, sig, cfg)
+    w = w.clip(lower=-vol_cap, upper=vol_cap)
     return w + 0.0  # normalise -0.0
 
 
-def apply_band(w_new: pd.Series, w_held: pd.Series, band: float) -> pd.Series:
+_CAP_TOL = 1e-12
+
+
+def _revert_group(out: pd.Series, new: pd.Series, mask: pd.Series, cap: float) -> pd.Series:
+    """
+    Send held symbols of a group back to ``w_new`` until ``sum |out[mask]| <= cap``.
+
+    Symbols are reverted in decreasing order of excess ``|out_i| - |new_i|``;
+    only symbols whose held weight is larger than the target are touched, so
+    every revert lowers exposure and never breaks a cap enforced earlier.
+    """
+    total = out[mask].abs().sum()
+    if total <= cap + _CAP_TOL:
+        return out
+    excess = (out.abs() - new.abs()).where(mask, 0.0)
+    for sym in excess[excess > 0].sort_values(ascending=False, kind="stable").index:
+        total -= excess[sym]
+        out[sym] = new[sym]
+        if total <= cap + _CAP_TOL:
+            break
+    return out
+
+
+def apply_band(w_new: pd.Series, w_held: pd.Series, band: float, cfg: SizingConfig | None = None,
+               max_abs: pd.Series | None = None) -> pd.Series:
     """
     No-trade band: keep the held weight unless the change is large enough.
 
     Symbol i trades to ``w_new`` if ``|w_new - w_held| > band * max(|w_held|, |w_new|)``,
     or if the position opens (held 0, new != 0), closes (new 0) or flips sign.
     Symbols missing on either side count as 0.
+
+    Keeping held weights symbol by symbol can break the hard caps of PLAN §2.0 /
+    §7.3, so they are enforced again on the banded vector, in the same order as
+    ``target_weights``: per coin (``cfg`` caps and the optional per-symbol bound
+    ``max_abs``, e.g. ``coin_vol_cap``), long alt cluster, gross long, gross
+    short. For each breached cap the held symbols that cause it are sent to
+    ``w_new`` (largest excess first). Weights only move towards ``w_new``, so if
+    ``w_new`` satisfies a cap (it does when it comes from ``target_weights``) the
+    result satisfies it too. ``cfg`` defaults to ``SizingConfig()``.
+
+    A kill-switch risk reduction applied to ``w_new`` before the band should
+    also be passed as ``max_abs`` (e.g. ``w_new.abs()``) so that held weights
+    cannot undo it.
     """
     if not 0 <= band < 1:
         raise SizingError(f"band must be in [0, 1), got {band!r}")
+    cfg = cfg if cfg is not None else SizingConfig()
     idx = w_new.index.union(w_held.index)
     new = w_new.reindex(idx).astype(float).fillna(0.0)
     held = w_held.reindex(idx).astype(float).fillna(0.0)
@@ -224,6 +279,20 @@ def apply_band(w_new: pd.Series, w_held: pd.Series, band: float) -> pd.Series:
     opens_or_closes = (new == 0) != (held == 0)
     flips = np.sign(new) * np.sign(held) < 0
     trade = big_move | opens_or_closes | flips
-    out = held.where(~trade, new)
+    out = held.where(~trade, new).copy()
+
+    # Re-enforce the caps on the banded vector (kept symbols share sign with w_new).
+    bound = pd.Series([cfg.coin_cap(s) for s in idx], index=idx)
+    if max_abs is not None:
+        extra = max_abs.reindex(idx).astype(float).fillna(0.0).abs()
+        bound = np.minimum(bound, extra)
+    over = (out.abs() > bound + _CAP_TOL) & (out.abs() > new.abs())
+    out[over] = new[over]
+    is_alt = pd.Series([not cfg.is_major(s) for s in idx], index=idx)
+    out = _revert_group(out, new, is_alt & (out > 0), cfg.alt_long_cap)
+    out = _revert_group(out, new, out > 0, cfg.gross_long_cap)
+    out = _revert_group(out, new, out < 0, cfg.gross_short_cap)
+
+    out = out + 0.0
     out.name = w_new.name
     return out

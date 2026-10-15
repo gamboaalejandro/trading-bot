@@ -10,6 +10,7 @@ from apps.research.portfolio.sizing import (
     SizingError,
     annualized_vol,
     apply_band,
+    coin_vol_cap,
     discretize,
     ewma_corr,
     stress_cov,
@@ -212,3 +213,92 @@ def test_band_zero_trades_everything():
     held = pd.Series({"A": 0.30})
     out = apply_band(pd.Series({"A": 0.301}), held, 0.0)
     assert out["A"] == 0.301
+
+
+# --------------------------------------------------------------------------- band + caps
+def test_band_cannot_push_gross_long_above_one():
+    # Review repro: majors and alts stay inside the band while a new alt opens.
+    held = pd.Series({"BTCUSDT": 0.35, "ETHUSDT": 0.35, "A1USDT": 0.15, "A2USDT": 0.15})
+    new = pd.Series({"BTCUSDT": 0.30, "ETHUSDT": 0.30, "A1USDT": 0.13, "A2USDT": 0.13, "A3USDT": 0.14})
+    out = apply_band(new, held, 0.20)
+    assert out[out > 0].sum() <= 1.0 + 1e-12
+    assert out["A3USDT"] == 0.14
+    # Every weight is either the held or the target one.
+    assert all(out[s] in (held.get(s, 0.0), new[s]) for s in out.index)
+
+
+def test_band_reverts_largest_excess_first():
+    held = pd.Series({"BTCUSDT": 0.35, "ETHUSDT": 0.31, "A1USDT": 0.20})
+    new = pd.Series({"BTCUSDT": 0.30, "ETHUSDT": 0.30, "A1USDT": 0.20, "A2USDT": 0.15})
+    out = apply_band(new, held, 0.20)
+    # Kept: 0.35 + 0.31 + 0.20 + 0.15 = 1.01 -> BTC (excess 0.05) goes to target, ETH stays held.
+    assert out["BTCUSDT"] == 0.30
+    assert out["ETHUSDT"] == 0.31
+    assert out.sum() == pytest.approx(0.96)
+
+
+def test_band_cannot_push_alt_cluster_above_cap():
+    alts = [f"A{i}USDT" for i in range(4)]
+    held = pd.Series({**{a: 0.18 for a in alts[:3]}, "BTCUSDT": 0.10})       # alts 0.54
+    new = pd.Series({**{a: 0.16 for a in alts[:3]}, alts[3]: 0.12, "BTCUSDT": 0.20})  # alts 0.60
+    out = apply_band(new, held, 0.20)
+    assert out[alts].clip(lower=0).sum() <= 0.60 + 1e-12
+    assert out[out > 0].sum() <= 1.0 + 1e-12
+
+
+def test_band_cannot_push_gross_short_above_cap():
+    held = pd.Series({"BTCUSDT": -0.25, "ETHUSDT": -0.25})
+    new = pd.Series({"BTCUSDT": -0.21, "ETHUSDT": -0.21, "SOLUSDT": -0.08})
+    out = apply_band(new, held, 0.20)
+    assert -out[out < 0].sum() <= 0.5 + 1e-12
+    assert out["SOLUSDT"] == -0.08
+
+
+def test_band_enforces_per_coin_and_vol_caps():
+    cfg = SizingConfig()
+    held = pd.Series({"SOLUSDT": 0.22, "BTCUSDT": 0.30})   # SOL above its 0.20 coin cap
+    new = pd.Series({"SOLUSDT": 0.19, "BTCUSDT": 0.27})
+    out = apply_band(new, held, 0.20, cfg)
+    assert out["SOLUSDT"] == 0.19
+    assert out["BTCUSDT"] == 0.30
+    # Coin vol cap: BTC vol jumped, 1.0 * 0.25 / 0.9 ~ 0.278 < held 0.30.
+    vcap = coin_vol_cap(pd.Series({"BTCUSDT": 1.0, "SOLUSDT": 1.0}), pd.Series({"BTCUSDT": 0.9, "SOLUSDT": 0.5}), cfg)
+    out = apply_band(new, held, 0.20, cfg, max_abs=vcap)
+    assert out["BTCUSDT"] == 0.27
+
+
+def test_band_does_not_undo_kill_switch_half_risk():
+    held = pd.Series({"BTCUSDT": 0.17, "SOLUSDT": 0.055})
+    full = pd.Series({"BTCUSDT": 0.30, "SOLUSDT": 0.10})
+    halved = full * 0.5
+    # Without the bound the band keeps both held weights (inside 20 % of the target).
+    assert apply_band(halved, held, 0.20).to_dict() == pytest.approx(held.to_dict())
+    out = apply_band(halved, held, 0.20, max_abs=halved.abs())
+    assert out.to_dict() == pytest.approx(halved.to_dict())
+
+
+def test_band_plus_caps_invariant_random_pairs():
+    rng = np.random.default_rng(11)  # fixture for an invariant check only
+    syms = ["BTCUSDT", "ETHUSDT"] + [f"A{i}USDT" for i in range(10)]
+    alts = syms[2:]
+    cfg = SizingConfig(sigma_target=3.0)
+
+    def random_target():
+        E = pd.Series(discretize(pd.DataFrame({"e": rng.uniform(-1, 1, len(syms))}))["e"].to_numpy(), index=syms)
+        sig = pd.Series(rng.uniform(0.1, 1.5, len(syms)), index=syms)
+        return target_weights(E, sig, _cov(sig, rho=rng.uniform(0.75, 1.0)), cfg), coin_vol_cap(E, sig, cfg)
+
+    coin_caps = pd.Series([cfg.coin_cap(s) for s in syms], index=syms)
+    for i in range(500):
+        new, vcap = random_target()
+        if i % 2:
+            held, _ = random_target()
+        else:  # held close to new, so the band keeps many symbols
+            held = new * rng.uniform(0.8, 1.25, len(syms))
+        band = rng.choice([0.1, 0.2, 0.5, 0.9])
+        out = apply_band(new, held, band, cfg, max_abs=vcap)
+        assert out[out > 0].sum() <= 1.0 + 1e-9
+        assert -out[out < 0].sum() <= 0.5 + 1e-9
+        assert out[alts].clip(lower=0).sum() <= 0.60 + 1e-9
+        assert (out.abs() <= coin_caps + 1e-12).all()
+        assert (out.abs() <= vcap + 1e-12).all()
