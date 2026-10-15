@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Get Python interpreter (system or venv)
 PYTHON_CMD = sys.executable
+LOG_DIR = Path(__file__).parent / "logs"
 
 class ProcessManager:
     def __init__(self):
@@ -38,15 +39,23 @@ class ProcessManager:
         self.env['PYTHONPATH'] = project_root
     
     def start_process(self, name: str, command: List[str]):
-        """Start a subprocess."""
+        """Start a subprocess.
+
+        Output goes to a log file instead of an unread PIPE: a full pipe
+        buffer (~64KB) blocks the child process forever.
+        """
         logger.info(f"Starting {name}...")
+        LOG_DIR.mkdir(exist_ok=True)
+        log_path = LOG_DIR / f"{name.lower().replace(' ', '_')}.out"
+        log_file = open(log_path, "a", buffering=1)
         process = subprocess.Popen(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
             text=True,
             env=self.env  # Pass environment with PYTHONPATH
         )
+        process.log_path = log_path
         self.processes.append(process)
         logger.info(f"{name} started (PID: {process.pid})")
         return process
@@ -116,9 +125,9 @@ async def main():
             for process in manager.processes:
                 if process.poll() is not None:
                     logger.error(f"Process {process.pid} died unexpectedly")
-                    logger.error("Stderr:")
-                    stderr = process.stderr.read() if process.stderr else "N/A"
-                    logger.error(stderr)
+                    logger.error(f"Last output ({process.log_path}):")
+                    with open(process.log_path) as f:
+                        logger.error("".join(f.readlines()[-30:]))
                     manager.stop_all()
                     sys.exit(1)
             

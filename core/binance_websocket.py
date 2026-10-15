@@ -6,6 +6,7 @@ Implements WebSocket streams as per Binance documentation:
 https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
 """
 import asyncio
+import os
 import json
 import logging
 import websockets
@@ -31,7 +32,7 @@ class BinanceWebSocket:
     """
     
     # WebSocket URLs
-    DEMO_WS_URL = "wss://demo-stream.binance.com"
+    DEMO_WS_URL = "wss://stream.testnet.binance.vision"
     PROD_WS_URL = "wss://stream.binance.com"
     
     # Stream endpoints
@@ -55,7 +56,9 @@ class BinanceWebSocket:
             on_close: Callback when connection closes
         """
         self.demo_mode = demo_mode
-        self.base_url = self.DEMO_WS_URL if demo_mode else self.PROD_WS_URL
+        # Same environment as the REST client (BINANCE_TESTNET_URL)
+        demo_url = os.getenv('BINANCE_TESTNET_WS_URL', self.DEMO_WS_URL)
+        self.base_url = demo_url if demo_mode else self.PROD_WS_URL
         
         # Callbacks
         self.on_message = on_message

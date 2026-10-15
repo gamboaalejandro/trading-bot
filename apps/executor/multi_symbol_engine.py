@@ -1,4 +1,4 @@
-﻿"""
+"""
 Multi-Symbol Trading Engine
 Main orchestrator for portfolio-based automated trading
 
@@ -25,6 +25,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List
 import os
+import json
 
 from core.config import settings
 from apps.executor.testnet_connector import TestnetConnector
@@ -39,6 +40,7 @@ from apps.executor.profiles import get_profile
 from apps.executor.pnl_logger import PnLLogger
 from config.safe_list import get_active_symbols, get_symbol_config
 
+os.makedirs('logs', exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -48,6 +50,43 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+STATE_FILE = os.getenv('ENGINE_STATE_FILE', 'state/open_positions.json')
+EMA_TREND_PERIOD = 200  # Trend filter in StrategyManager
+CANDLE_BUFFER = 50      # Extra candles so rolling indicators are warmed up
+
+
+def timeframe_to_seconds(timeframe: str) -> int:
+    """Convert a Binance interval ('1m', '4h', '1d', '1w') to seconds."""
+    units = {'m': 60, 'h': 3600, 'd': 86400, 'w': 604800}
+    return int(timeframe[:-1]) * units[timeframe[-1]]
+
+
+def base_asset(symbol: str) -> str:
+    """'BTC/USDT' -> 'BTC'."""
+    return symbol.split('/')[0]
+
+
+def fill_summary(order: Dict, base: str) -> tuple:
+    """
+    Summarize a Binance spot order response.
+
+    Returns (net_base_quantity, average_price, fee_in_quote): quantity is
+    executedQty minus commissions charged in the base asset, which are not
+    in the wallet and cannot be sold back.
+    """
+    executed = float(order.get('executedQty', 0) or 0)
+    quote = float(order.get('cummulativeQuoteQty', 0) or 0)
+    avg_price = quote / executed if executed > 0 else 0.0
+    base_fee = 0.0
+    quote_fee = 0.0
+    for fill in order.get('fills', []):
+        commission = float(fill.get('commission', 0) or 0)
+        if fill.get('commissionAsset') == base:
+            base_fee += commission
+        elif fill.get('commissionAsset') == 'USDT':
+            quote_fee += commission
+    return executed - base_fee, avg_price, quote_fee
 
 
 class MultiSymbolEngine:
@@ -116,9 +155,17 @@ class MultiSymbolEngine:
         self.latest_candles: Dict[str, pd.DataFrame] = {}
         self.last_candle_time: Dict[str, datetime] = {}
         
+        # Daily risk accounting (feeds the risk manager kill switch)
+        self.trading_day = datetime.now().date()
+        self.daily_realized_pnl = 0.0
+        self.daily_trades: Dict[str, int] = {}
+
         # Position tracking (prevent duplicate trades)
         self.open_positions: Dict[str, Dict] = {}  # {symbol: {'side': 'buy', 'entry_price': 71000, 'timestamp': ...}}
         
+        # Restore positions from a previous run (stops live on the exchange)
+        self._load_state()
+
         # Initialize strategies for each symbol (Factory Pattern)
         self._initialize_strategies()
         
@@ -290,11 +337,19 @@ class MultiSymbolEngine:
             if self.tick_count % 100 == 0:
                 logger.info(f"[STATS] Processed {self.tick_count} ticks total")
             
-            # Update candles for this symbol
+            # Update candles only when a new candle may have closed, and
+            # evaluate strategies once per CLOSED candle (no repainting,
+            # no REST call per tick)
+            if not self._new_candle_due(symbol):
+                return
+
+            previous_candle = self.last_candle_time[symbol]
             await self._update_candles(symbol)
-            
-            # Check for signals
-            if self.latest_candles[symbol] is not None:
+
+            if (
+                self.latest_candles[symbol] is not None
+                and self.last_candle_time[symbol] != previous_candle
+            ):
                 await self._check_signal(symbol)
                 
         except Exception as e:
@@ -308,14 +363,18 @@ class MultiSymbolEngine:
             symbol: Trading pair
         """
         try:
-            # Determine required candles based on strategy
-            required_candles = 100  # Buffer for indicators
-            
-            # Fetch OHLCV
+            # Enough history for the slowest indicator AND the EMA 200 trend
+            # filter (previously 110 candles: EMA200 and SOL's MA200 never ran)
+            required_candles = max(
+                self.strategies[symbol].get_required_candles(),
+                EMA_TREND_PERIOD
+            ) + CANDLE_BUFFER
+
+            # Fetch OHLCV (+1 because the in-progress candle is dropped below)
             ohlcv = await self.connector.fetch_ohlcv(
                 symbol=symbol,
                 timeframe=settings.DEFAULT_TIMEFRAME,
-                limit=required_candles + 10
+                limit=min(required_candles + 1, 1000)
             )
             
             # Convert to DataFrame
@@ -324,16 +383,30 @@ class MultiSymbolEngine:
                 columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
             )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+            # Drop the candle that is still forming: signals on it repaint
+            candle_seconds = timeframe_to_seconds(settings.DEFAULT_TIMEFRAME)
+            now = pd.Timestamp.utcnow().tz_localize(None)
+            if not df.empty and df['timestamp'].iloc[-1] + pd.Timedelta(seconds=candle_seconds) > now:
+                df = df.iloc[:-1].reset_index(drop=True)
             
             self.latest_candles[symbol] = df
             self.last_candle_time[symbol] = df['timestamp'].iloc[-1]
             
-            # Cambiar a INFO para ver actividad
-            logger.info(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
+            logger.debug(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
             
         except Exception as e:
             logger.error(f"Error updating candles for {symbol}: {e}", exc_info=True)
     
+    def _new_candle_due(self, symbol: str) -> bool:
+        """True if no candles yet or the next candle should have closed."""
+        last = self.last_candle_time[symbol]
+        if last is None:
+            return True
+        candle_seconds = timeframe_to_seconds(settings.DEFAULT_TIMEFRAME)
+        next_close = last + pd.Timedelta(seconds=2 * candle_seconds)
+        return pd.Timestamp.utcnow().tz_localize(None) >= next_close
+
     async def _check_signal(self, symbol: str):
         """
         Check for trading signal on specific symbol.
@@ -386,6 +459,12 @@ class MultiSymbolEngine:
                     else:
                         logger.debug(f"{symbol}: SELL signal but position is SHORT (already selling)")
                         return
+
+                # Spot cannot open shorts: a SELL without an open LONG would
+                # sell coins the bot never bought
+                if signal.signal_type.value == 'sell':
+                    logger.info(f"[SKIP] {symbol} - SELL signal without open position (spot is long-only)")
+                    return
                 
                 # Check if actionable (for opening new positions)
                 if signal.is_actionable():
@@ -431,6 +510,17 @@ class MultiSymbolEngine:
             signal: Trading signal
         """
         try:
+            self._roll_trading_day()
+
+            # Portfolio limits from the trading profile and safe_list
+            if len(self.open_positions) >= self.profile.max_positions and symbol not in self.open_positions:
+                logger.info(f"[SKIP] {symbol} - Max open positions reached ({self.profile.max_positions})")
+                return
+            max_daily = (get_symbol_config(symbol) or {}).get('max_daily_trades')
+            if max_daily is not None and self.daily_trades.get(symbol, 0) >= max_daily:
+                logger.info(f"[SKIP] {symbol} - Max daily trades reached ({max_daily})")
+                return
+
             # Check if we already have an open position for this symbol
             if symbol in self.open_positions:
                 existing = self.open_positions[symbol]
@@ -486,11 +576,16 @@ class MultiSymbolEngine:
             config = get_symbol_config(symbol)
             max_position_usd = config.get('max_position_size_usd', 1000)
             
-            # Respect max position size
+            # Respect max position size and the free USDT (keep 2% for fees)
+            max_position_usd = min(max_position_usd, balance * 0.98)
             position_value_usd = quantity * current_price
             if position_value_usd > max_position_usd:
                 quantity = max_position_usd / current_price
                 position_value_usd = max_position_usd
+
+            if position_value_usd < self.risk_manager.cfg.min_notional_usdt:
+                logger.warning(f"{symbol} - Notional ${position_value_usd:.2f} below exchange minimum, skipping")
+                return
             
             # Log trade details
             logger.info(f"\n{'='*60}")
@@ -520,8 +615,15 @@ class MultiSymbolEngine:
             )
             
             if order_result:
-                logger.info(f" {symbol} - Order placed successfully")
-                logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
+                # Track what was really filled: net of commission charged in
+                # the base asset, at the average fill price
+                quantity, current_price, _ = fill_summary(order_result, base_asset(symbol))
+                if quantity <= 0:
+                    logger.error(f" {symbol} - Order not filled: {order_result.get('status')}")
+                    return
+                order_id = order_result.get('orderId', 'N/A')
+                logger.info(f" {symbol} - Order filled: {quantity:.8f} @ ${current_price:,.4f}")
+                logger.info(f"Order ID: {order_id}")
                 
                 # Get TP/SL configuration from .env (Spot optimized)
                 tp_rr_ratio = float(getattr(settings, 'TP_RR_RATIO', 3.0))  # Default 3:1 for Spot
@@ -544,6 +646,8 @@ class MultiSymbolEngine:
                 logger.info(f"   SL Distance: ${distance_to_sl:.2f} (-{risk_pct:.2f}%)")
                 logger.info(f"   Risk/Reward: 1:{tp_rr_ratio:.1f}")
                 
+                self.daily_trades[symbol] = self.daily_trades.get(symbol, 0) + 1
+
                 # Track position to prevent duplicate trades
                 self.open_positions[symbol] = {
                     'side': signal.signal_type.value,
@@ -551,9 +655,15 @@ class MultiSymbolEngine:
                     'quantity': quantity,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
-                    'order_id': order_result.get('id', 'N/A'),
+                    'order_id': order_id,
                     'timestamp': datetime.now().isoformat()
                 }
+                # Protective stop ON THE EXCHANGE: protects the position even if
+                # the bot dies. The monitor still handles TP/trailing/stagnation.
+                self.open_positions[symbol]['stop_order_id'] = await self._place_exchange_stop(
+                    symbol, quantity, stop_loss
+                )
+                self._save_state()
                 logger.info(f" Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
                 logger.info(f"   TP: ${take_profit:,.2f} | SL: ${stop_loss:,.2f}")
                 
@@ -563,7 +673,7 @@ class MultiSymbolEngine:
                     side=signal.signal_type.value,
                     entry_price=current_price,
                     quantity=quantity,
-                    order_id=order_result.get('id', 'N/A'),
+                    order_id=order_id,
                     timestamp=datetime.now()
                 )
                 
@@ -627,6 +737,7 @@ class MultiSymbolEngine:
                                         f"(trailing 2%, profit: {profit_pct:.2%})"
                                     )
                                     stop_loss = trailing_sl  # Update for checks below
+                                    await self._move_exchange_stop(symbol)
                             
                             # Breakeven at +3% profit
                             elif profit_pct >= 0.03 and stop_loss < entry_price:
@@ -637,6 +748,7 @@ class MultiSymbolEngine:
                                     f"(profit: {profit_pct:.2%})"
                                 )
                                 stop_loss = breakeven_sl
+                                await self._move_exchange_stop(symbol)
                         
                         # ========================================
                         # STAGNATION EXIT (CAPITAL ROTATION)
@@ -721,28 +833,55 @@ class MultiSymbolEngine:
                 logger.info(f"Exit Price: ${current_price:,.2f}")
                 logger.info(f"Quantity: {quantity:.6f}")
                 logger.info(f"Simulated PNL: ${pnl:,.2f}")
+                self._record_realized_pnl(pnl)
                 logger.info(f"{'='*60}\n")
                 
                 del self.open_positions[symbol]
+                self._save_state()
                 return
+
+            # Remove the exchange stop first, otherwise it locks the coins
+            await self._cancel_exchange_stop(symbol)
             
+            # Never sell more than what is actually free in the wallet
+            close_quantity = position['quantity']
+            if close_side == 'sell':
+                balances = await self.connector.get_balance()
+                free_base = balances.get(base_asset(symbol), {}).get('free', 0.0)
+                close_quantity = min(close_quantity, free_base)
+
+                if close_quantity * current_price < self.risk_manager.cfg.min_notional_usdt:
+                    # Nothing left to sell: the exchange stop already filled
+                    stop = position['stop_loss']
+                    pnl = (stop - position['entry_price']) * position['quantity']
+                    logger.warning(
+                        f"{symbol} - No free balance to sell; assuming exchange stop filled "
+                        f"near ${stop:,.4f} (approx PnL ${pnl:,.2f})"
+                    )
+                    self._record_realized_pnl(pnl)
+                    del self.open_positions[symbol]
+                    self._save_state()
+                    return
+
             # Execute real closing order
             order_result = await self.connector.place_order(
                 symbol=symbol,
                 side=close_side,
-                quantity=position['quantity'],
+                quantity=close_quantity,
                 price=current_price,
                 order_type='market'
             )
             
             if order_result:
                 entry = position['entry_price']
-                quantity = position['quantity']
+                quantity, filled_price, quote_fee = fill_summary(order_result, base_asset(symbol))
+                if filled_price > 0:
+                    current_price = filled_price
                 
                 if position['side'] == 'buy':
-                    pnl = (current_price - entry) * quantity
+                    pnl = (current_price - entry) * quantity - quote_fee
                 else:
-                    pnl = (entry - current_price) * quantity
+                    pnl = (entry - current_price) * quantity - quote_fee
                 
                 logger.info(f"{'='*60}")
                 logger.info(f"POSITION CLOSED: {symbol}")
@@ -756,9 +895,11 @@ class MultiSymbolEngine:
                 roi = (pnl / (entry * quantity)) * 100
                 
                 logger.info(f"Realized PNL: ${pnl:,.2f} ({'+' if pnl > 0 else ''}{roi:.2f}%)")
-                logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
+                logger.info(f"Order ID: {order_result.get('orderId', 'N/A')}")
                 logger.info(f"{'='*60}\n")
                 
+                self._record_realized_pnl(pnl)
+
                 # Log exit to P&L tracker
                 self.pnl_logger.log_trade_exit(
                     symbol=symbol,
@@ -773,12 +914,84 @@ class MultiSymbolEngine:
                 
                 # Remove from tracking
                 del self.open_positions[symbol]
+                self._save_state()
             else:
                 logger.error(f" {symbol} - Failed to close position")
         
         except Exception as e:
             logger.error(f"Error closing position for {symbol}: {e}", exc_info=True)
     
+    def _load_state(self):
+        """Load open positions persisted by a previous run."""
+        if not os.path.exists(STATE_FILE):
+            return
+        try:
+            with open(STATE_FILE) as f:
+                self.open_positions = json.load(f)
+            logger.info(f"Restored {len(self.open_positions)} open position(s) from {STATE_FILE}")
+        except Exception as e:
+            logger.error(f"Could not load {STATE_FILE}: {e}")
+
+    def _save_state(self):
+        """Persist open positions atomically."""
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            tmp = STATE_FILE + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(self.open_positions, f, indent=2, default=str)
+            os.replace(tmp, STATE_FILE)
+        except Exception as e:
+            logger.error(f"Could not save {STATE_FILE}: {e}")
+
+    async def _place_exchange_stop(self, symbol: str, quantity: float, stop_price: float):
+        """Place a STOP_LOSS sell order for a long position. Returns order id or None."""
+        if self.dry_run:
+            return None
+        try:
+            order = await self.connector.create_stop_loss(symbol, 'sell', quantity, stop_price)
+            return order.get('orderId')
+        except Exception as e:
+            logger.error(f"{symbol} - Could not place exchange stop (client-side stop still active): {e}")
+            return None
+
+    async def _cancel_exchange_stop(self, symbol: str):
+        """Cancel the position's exchange stop, if any."""
+        position = self.open_positions.get(symbol, {})
+        order_id = position.get('stop_order_id')
+        if not order_id:
+            return
+        try:
+            await self.connector.cancel_order(str(order_id), symbol)
+        except Exception as e:
+            logger.warning(f"{symbol} - Could not cancel stop order {order_id}: {e}")
+        position['stop_order_id'] = None
+
+    async def _move_exchange_stop(self, symbol: str):
+        """Replace the exchange stop after a trailing/breakeven update."""
+        position = self.open_positions[symbol]
+        if position.get('stop_order_id'):
+            await self._cancel_exchange_stop(symbol)
+            position['stop_order_id'] = await self._place_exchange_stop(
+                symbol, position['quantity'], position['stop_loss']
+            )
+        self._save_state()
+
+    def _roll_trading_day(self):
+        """Reset daily counters at the start of a new (local) day."""
+        today = datetime.now().date()
+        if today != self.trading_day:
+            self.trading_day = today
+            self.daily_realized_pnl = 0.0
+            self.daily_trades = {}
+            self.risk_manager.update_daily_pnl(0.0)
+
+    def _record_realized_pnl(self, pnl: float):
+        """Accumulate realized P&L so the daily drawdown kill switch works."""
+        self._roll_trading_day()
+        self.daily_realized_pnl += pnl
+        self.risk_manager.update_daily_pnl(self.daily_realized_pnl)
+        logger.info(f"Daily realized PnL: ${self.daily_realized_pnl:,.2f}")
+
     async def stop(self):
         """Stop the engine and cleanup resources."""
         logger.info("Stopping Multi-Symbol Trading Engine...")

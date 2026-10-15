@@ -6,6 +6,7 @@ Implements HMAC SHA256 authentication as per Binance API documentation:
 https://developers.binance.com/docs/binance-spot-api-docs/rest-api
 """
 import time
+from decimal import Decimal, ROUND_DOWN
 import hmac
 import hashlib
 import requests
@@ -77,6 +78,7 @@ class BinanceClient:
         
         # Server time offset (for timestamp sync)
         self._time_offset = 0
+        self._exchange_info_cache: Dict[str, Dict[str, Any]] = {}
         
         logger.info(f"Binance Client initialized: {'DEMO MODE' if demo_mode else 'PRODUCTION'}")
         logger.info(f"Base URL: {self.base_url}")
@@ -291,12 +293,33 @@ class BinanceClient:
         Endpoint: GET /api/v3/exchangeInfo
         Weight: 20
         """
+        # Trading rules rarely change: cache per symbol (weight 20 per call)
+        cache_key = symbol or '*'
+        if cache_key in self._exchange_info_cache:
+            return self._exchange_info_cache[cache_key]
+
         params = {}
         if symbol:
             params['symbol'] = symbol
         
-        return self._request('GET', '/api/v3/exchangeInfo', params=params)
+        info = self._request('GET', '/api/v3/exchangeInfo', params=params)
+        self._exchange_info_cache[cache_key] = info
+        return info
     
+    def round_price(self, symbol: str, price: float) -> float:
+        """Round a price DOWN to the symbol's PRICE_FILTER tickSize."""
+        try:
+            symbols = self.get_exchange_info(symbol).get('symbols', [])
+            filters = symbols[0].get('filters', []) if symbols else []
+            for f in filters:
+                if f.get('filterType') == 'PRICE_FILTER':
+                    tick = Decimal(f['tickSize']).normalize()
+                    ticks = (Decimal(str(price)) / tick).to_integral_value(rounding=ROUND_DOWN)
+                    return float(ticks * tick)
+        except Exception as e:
+            logger.error(f"Error rounding price for {symbol}: {e}")
+        return round(price, 8)
+
     def round_quantity(self, symbol: str, quantity: float) -> float:
         """
         Round quantity to match symbol's LOT_SIZE stepSize filter.
@@ -344,8 +367,11 @@ class BinanceClient:
             else:
                 precision = 0
             
-            # Round to precision
-            rounded = round(quantity, precision)
+            # Round DOWN to a multiple of stepSize: rounding up can ask for
+            # more than the available balance (insufficient balance errors)
+            step = Decimal(lot_size_filter['stepSize'])
+            steps = (Decimal(str(quantity)) / step).to_integral_value(rounding=ROUND_DOWN)
+            rounded = float(round(steps * step, precision))
             
             logger.debug(f"Rounded {quantity} to {rounded} ({precision} decimals, stepSize={step_size})")
             
