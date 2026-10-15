@@ -16,6 +16,9 @@ PENDING_ROTATION = {".env.futures.backup", "pruebita.ipynb"}
 # A Binance API key / secret is 64 alphanumeric chars. HMAC signatures in logged
 # URLs (``signature=<64 hex>``) are not secrets and are ignored.
 KEY_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9]{64}(?![A-Za-z0-9])")
+# SHA-256 digests (lowercase hex, e.g. the hash chain in data/trials/trials.jsonl)
+# are not key-shaped: Binance keys are mixed-case alphanumeric.
+DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 ASSIGN_RE = re.compile(r"(?i)\b(api[_-]?key|api[_-]?secret|secret[_-]?key|BINANCE_[A-Z_]*(KEY|SECRET))[ \t]*[=:][ \t]*['\"]?([^\s'\"#]+)")
 PLACEHOLDER_RE = re.compile(r"(?i)^(your_|<|\$\{|\$|os\.|settings\.|creds\.|env|test$|x+$|k+$|s+$|none$|\"\"$)")
 
@@ -64,6 +67,8 @@ def test_key_pattern_detects_planted_key():
     assert KEY_RE.search(f"API_KEY={fake}\n")
     assert not KEY_RE.search(f"key={fake}x")  # 65 chars: not a key-shaped token
     assert ASSIGN_RE.search(f"BINANCE_API_SECRET = '{fake}'").group(3) == fake
+    assert not DIGEST_RE.match(fake)
+    assert DIGEST_RE.match("0123456789abcdef" * 4)
 
 
 def _tracked_files():
@@ -89,6 +94,8 @@ def test_no_api_keys_in_versioned_files():
             continue
         for m in KEY_RE.finditer(text):
             if text[max(0, m.start() - 10):m.start()].endswith("signature="):
+                continue
+            if DIGEST_RE.match(m.group(0)):
                 continue
             offenders.append(f"{rel}:{text.count(chr(10), 0, m.start()) + 1}")
         for m in ASSIGN_RE.finditer(text):
