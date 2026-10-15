@@ -1,0 +1,36 @@
+# Risk limits fixed by the USER (PLAN.md §7.6, §1.4, §5.6). They are NOT optimised.
+# Read by apps/research/portfolio/risk.py (simulated kill-switch in backtests)
+# and intended for apps/live/kill_switch.py. All values are fractions.
+#
+# User decisions (2026-10-15): capital < 10k USD; max total drawdown 20 %;
+# max daily loss 5 %; max accepted leverage 3x on ISOLATED margin (the plan
+# uses <= 1x on alts and <= 1.5x on BTC/ETH, inside that ceiling).
+
+daily_loss:
+  block_entries: -0.02      # daily P&L <= -2 %: no new entries / no increases
+  flatten_leveraged: -0.05  # daily P&L <= -5 %: close L > 1 and shorts, block everything, alert
+
+drawdown:
+  half_risk: 0.10           # drawdown from peak >= 10 %: risk multiplier 0.5
+  halt: 0.20                # drawdown from peak >= 20 %: close everything, stop, human review
+  half_risk_mult: 0.5
+
+leverage:
+  max_alt: 1.0              # effective leverage per position, altcoins
+  max_major: 1.5            # effective leverage per position, BTC/ETH
+  hard_max: 3.0             # user's absolute ceiling (isolated margin only)
+  margin_type: ISOLATED
+  majors: [BTCUSDT, ETHUSDT]
+
+exposure:
+  gross_long: 1.0
+  gross_short: 0.5
+  cap_major: 0.35
+  cap_alt: 0.20
+  alt_long: 0.60
+  risk_per_trade_major: 0.005
+  risk_per_trade_alt: 0.0025
+
+gate:
+  max_dd_oos_spot: 0.20     # §5.6 point 8, tightened to the user's 20 % tolerance
+  max_dd_oos_futures: 0.20
