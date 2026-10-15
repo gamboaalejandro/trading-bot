@@ -16,6 +16,7 @@ Timeline of one daily bar ``d`` (labels are bar OPEN times, UTC):
    (``max(stop, C - 3*ATR14)`` for longs, once a day after the close), update
    the simulated kill-switch with the NAV, and compute the next targets:
    ``strategy.signal`` row ``d`` -> discretise -> layer D (``target_weights``)
+   -> weight overlays (``strategy.weight_multiplier``, factors in [0, 1])
    -> liquidation check (futures) -> kill-switch -> no-trade band.
 
 Funding notional at a settlement is ``|qty| * open[d]`` (the 1d data has no
@@ -62,7 +63,7 @@ from apps.research.portfolio.sizing import (
     stress_cov,
     target_weights,
 )
-from apps.research.strategies.base import Context, TargetWeightStrategy
+from apps.research.strategies.base import Context, TargetWeightStrategy, weight_multiplier_of
 
 __all__ = [
     "BTError",
@@ -226,6 +227,21 @@ def _validate_signal(E, symbols: list[str], market: str) -> pd.DataFrame:
     if market == "spot" and finite.size and finite.min() < -_TOL:
         raise BTError("short signals are not executable in spot")
     return E
+
+
+def _validate_multiplier(M, symbols: list[str]) -> Optional[pd.DataFrame]:
+    if M is None:
+        return None
+    if not isinstance(M, pd.DataFrame):
+        raise BTError(f"strategy.weight_multiplier must return a DataFrame, got {type(M).__name__}")
+    extra = set(M.columns) - set(symbols)
+    if extra:
+        raise BTError(f"weight multiplier has symbols not in the panel: {sorted(extra)}")
+    vals = M.to_numpy(dtype=float)
+    finite = vals[np.isfinite(vals)]
+    if np.isinf(vals).any() or (finite.size and (finite.min() < 0.0 or finite.max() > 1.0 + _TOL)):
+        raise BTError("weight multipliers must be in [0, 1] (overlays never increase exposure)")
+    return M
 
 
 # --------------------------------------------------------------------------- engine
@@ -420,6 +436,9 @@ def run_portfolio_bt(
     ctx.funding = funding if market == "futures" else {}
     E = _validate_signal(strategy.signal(dict(panel), ctx), symbols, market)
     E = E.reindex(index=dates, columns=symbols).astype(float)
+    wmult = _validate_multiplier(weight_multiplier_of(strategy, dict(panel), ctx), symbols)
+    if wmult is not None:
+        wmult = wmult.reindex(index=dates, columns=symbols).astype(float).fillna(1.0)
 
     book = _Book(symbols, market, cost, initial_equity)
     ks = KillSwitch(risk) if risk is not None else None
@@ -560,6 +579,14 @@ def run_portfolio_bt(
             if w_new[w_new > 0].sum() > 1.0 + 1e-9 or -w_new[w_new < 0].sum() > 0.5 + 1e-9:
                 raise BTError(f"raw weights at {d} break gross caps (long <= 1, short <= 0.5)")
 
+        # Risk-reducing weight overlays (REGIME / FVETO): never increase exposure.
+        overlay_cap = None
+        if wmult is not None:
+            m = wmult.iloc[gi]
+            if (m < 1.0).any():
+                w_new = w_new * m
+                overlay_cap = w_new.abs().where(m < 1.0, np.inf)
+
         # Liquidation distance check before opening/increasing a perp position.
         if wick:
             for s in symbols:
@@ -583,6 +610,8 @@ def run_portfolio_bt(
             max_abs = coin_vol_cap(e_q, sigma, sizing)
             if state is not None and (state.risk_mult < 1 or state.entries_blocked):
                 max_abs = np.minimum(max_abs, w_ks.abs())
+            if overlay_cap is not None:
+                max_abs = np.minimum(max_abs, overlay_cap.reindex(symbols))
             w_final = apply_band(w_ks, w_held.reindex(symbols).fillna(0.0), sizing.band, cfg=sizing,
                                  max_abs=max_abs).reindex(symbols)
             targets = {s: float(w_final[s]) for s in symbols if w_final[s] != w_held.get(s, 0.0)}
