@@ -1,4 +1,4 @@
-﻿"""
+"""
 Multi-Symbol Trading Engine
 Main orchestrator for portfolio-based automated trading
 
@@ -49,6 +49,15 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+EMA_TREND_PERIOD = 200  # Trend filter in StrategyManager
+CANDLE_BUFFER = 50      # Extra candles so rolling indicators are warmed up
+
+
+def timeframe_to_seconds(timeframe: str) -> int:
+    """Convert a Binance interval ('1m', '4h', '1d', '1w') to seconds."""
+    units = {'m': 60, 'h': 3600, 'd': 86400, 'w': 604800}
+    return int(timeframe[:-1]) * units[timeframe[-1]]
 
 
 class MultiSymbolEngine:
@@ -291,11 +300,19 @@ class MultiSymbolEngine:
             if self.tick_count % 100 == 0:
                 logger.info(f"[STATS] Processed {self.tick_count} ticks total")
             
-            # Update candles for this symbol
+            # Update candles only when a new candle may have closed, and
+            # evaluate strategies once per CLOSED candle (no repainting,
+            # no REST call per tick)
+            if not self._new_candle_due(symbol):
+                return
+
+            previous_candle = self.last_candle_time[symbol]
             await self._update_candles(symbol)
-            
-            # Check for signals
-            if self.latest_candles[symbol] is not None:
+
+            if (
+                self.latest_candles[symbol] is not None
+                and self.last_candle_time[symbol] != previous_candle
+            ):
                 await self._check_signal(symbol)
                 
         except Exception as e:
@@ -309,14 +326,18 @@ class MultiSymbolEngine:
             symbol: Trading pair
         """
         try:
-            # Determine required candles based on strategy
-            required_candles = 100  # Buffer for indicators
-            
-            # Fetch OHLCV
+            # Enough history for the slowest indicator AND the EMA 200 trend
+            # filter (previously 110 candles: EMA200 and SOL's MA200 never ran)
+            required_candles = max(
+                self.strategies[symbol].get_required_candles(),
+                EMA_TREND_PERIOD
+            ) + CANDLE_BUFFER
+
+            # Fetch OHLCV (+1 because the in-progress candle is dropped below)
             ohlcv = await self.connector.fetch_ohlcv(
                 symbol=symbol,
                 timeframe=settings.DEFAULT_TIMEFRAME,
-                limit=required_candles + 10
+                limit=min(required_candles + 1, 1000)
             )
             
             # Convert to DataFrame
@@ -325,16 +346,30 @@ class MultiSymbolEngine:
                 columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
             )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
+            # Drop the candle that is still forming: signals on it repaint
+            candle_seconds = timeframe_to_seconds(settings.DEFAULT_TIMEFRAME)
+            now = pd.Timestamp.utcnow().tz_localize(None)
+            if not df.empty and df['timestamp'].iloc[-1] + pd.Timedelta(seconds=candle_seconds) > now:
+                df = df.iloc[:-1].reset_index(drop=True)
             
             self.latest_candles[symbol] = df
             self.last_candle_time[symbol] = df['timestamp'].iloc[-1]
             
-            # Cambiar a INFO para ver actividad
-            logger.info(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
+            logger.debug(f"{symbol}: Updated {len(df)} candles, last at {self.last_candle_time[symbol]}")
             
         except Exception as e:
             logger.error(f"Error updating candles for {symbol}: {e}", exc_info=True)
     
+    def _new_candle_due(self, symbol: str) -> bool:
+        """True if no candles yet or the next candle should have closed."""
+        last = self.last_candle_time[symbol]
+        if last is None:
+            return True
+        candle_seconds = timeframe_to_seconds(settings.DEFAULT_TIMEFRAME)
+        next_close = last + pd.Timedelta(seconds=2 * candle_seconds)
+        return pd.Timestamp.utcnow().tz_localize(None) >= next_close
+
     async def _check_signal(self, symbol: str):
         """
         Check for trading signal on specific symbol.
