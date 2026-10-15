@@ -272,6 +272,9 @@ class TestnetConnector:
         # Convert 'BTC/USDT' to 'BTCUSDT'
         binance_symbol = symbol.replace('/', '')
         
+        amount = await asyncio.to_thread(self.client.round_quantity, binance_symbol, amount)
+        stop_price = await asyncio.to_thread(self.client.round_price, binance_symbol, stop_price)
+
         logger.info(
             f"Creating STOP LOSS {side.upper()} order: "
             f"{amount} {symbol} @ ${stop_price:.2f}"

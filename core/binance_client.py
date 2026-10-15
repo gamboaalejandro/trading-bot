@@ -306,6 +306,20 @@ class BinanceClient:
         self._exchange_info_cache[cache_key] = info
         return info
     
+    def round_price(self, symbol: str, price: float) -> float:
+        """Round a price DOWN to the symbol's PRICE_FILTER tickSize."""
+        try:
+            symbols = self.get_exchange_info(symbol).get('symbols', [])
+            filters = symbols[0].get('filters', []) if symbols else []
+            for f in filters:
+                if f.get('filterType') == 'PRICE_FILTER':
+                    tick = Decimal(f['tickSize']).normalize()
+                    ticks = (Decimal(str(price)) / tick).to_integral_value(rounding=ROUND_DOWN)
+                    return float(ticks * tick)
+        except Exception as e:
+            logger.error(f"Error rounding price for {symbol}: {e}")
+        return round(price, 8)
+
     def round_quantity(self, symbol: str, quantity: float) -> float:
         """
         Round quantity to match symbol's LOT_SIZE stepSize filter.
