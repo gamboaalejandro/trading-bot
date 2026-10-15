@@ -25,6 +25,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List
 import os
+import json
 
 from core.config import settings
 from apps.executor.testnet_connector import TestnetConnector
@@ -50,6 +51,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+STATE_FILE = os.getenv('ENGINE_STATE_FILE', 'state/open_positions.json')
 EMA_TREND_PERIOD = 200  # Trend filter in StrategyManager
 CANDLE_BUFFER = 50      # Extra candles so rolling indicators are warmed up
 
@@ -161,6 +163,9 @@ class MultiSymbolEngine:
         # Position tracking (prevent duplicate trades)
         self.open_positions: Dict[str, Dict] = {}  # {symbol: {'side': 'buy', 'entry_price': 71000, 'timestamp': ...}}
         
+        # Restore positions from a previous run (stops live on the exchange)
+        self._load_state()
+
         # Initialize strategies for each symbol (Factory Pattern)
         self._initialize_strategies()
         
@@ -653,6 +658,12 @@ class MultiSymbolEngine:
                     'order_id': order_id,
                     'timestamp': datetime.now().isoformat()
                 }
+                # Protective stop ON THE EXCHANGE: protects the position even if
+                # the bot dies. The monitor still handles TP/trailing/stagnation.
+                self.open_positions[symbol]['stop_order_id'] = await self._place_exchange_stop(
+                    symbol, quantity, stop_loss
+                )
+                self._save_state()
                 logger.info(f" Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
                 logger.info(f"   TP: ${take_profit:,.2f} | SL: ${stop_loss:,.2f}")
                 
@@ -726,6 +737,7 @@ class MultiSymbolEngine:
                                         f"(trailing 2%, profit: {profit_pct:.2%})"
                                     )
                                     stop_loss = trailing_sl  # Update for checks below
+                                    await self._move_exchange_stop(symbol)
                             
                             # Breakeven at +3% profit
                             elif profit_pct >= 0.03 and stop_loss < entry_price:
@@ -736,6 +748,7 @@ class MultiSymbolEngine:
                                     f"(profit: {profit_pct:.2%})"
                                 )
                                 stop_loss = breakeven_sl
+                                await self._move_exchange_stop(symbol)
                         
                         # ========================================
                         # STAGNATION EXIT (CAPITAL ROTATION)
@@ -824,7 +837,11 @@ class MultiSymbolEngine:
                 logger.info(f"{'='*60}\n")
                 
                 del self.open_positions[symbol]
+                self._save_state()
                 return
+
+            # Remove the exchange stop first, otherwise it locks the coins
+            await self._cancel_exchange_stop(symbol)
             
             # Never sell more than what is actually free in the wallet
             close_quantity = position['quantity']
@@ -832,6 +849,19 @@ class MultiSymbolEngine:
                 balances = await self.connector.get_balance()
                 free_base = balances.get(base_asset(symbol), {}).get('free', 0.0)
                 close_quantity = min(close_quantity, free_base)
+
+                if close_quantity * current_price < self.risk_manager.cfg.min_notional_usdt:
+                    # Nothing left to sell: the exchange stop already filled
+                    stop = position['stop_loss']
+                    pnl = (stop - position['entry_price']) * position['quantity']
+                    logger.warning(
+                        f"{symbol} - No free balance to sell; assuming exchange stop filled "
+                        f"near ${stop:,.4f} (approx PnL ${pnl:,.2f})"
+                    )
+                    self._record_realized_pnl(pnl)
+                    del self.open_positions[symbol]
+                    self._save_state()
+                    return
 
             # Execute real closing order
             order_result = await self.connector.place_order(
@@ -884,12 +914,68 @@ class MultiSymbolEngine:
                 
                 # Remove from tracking
                 del self.open_positions[symbol]
+                self._save_state()
             else:
                 logger.error(f" {symbol} - Failed to close position")
         
         except Exception as e:
             logger.error(f"Error closing position for {symbol}: {e}", exc_info=True)
     
+    def _load_state(self):
+        """Load open positions persisted by a previous run."""
+        if not os.path.exists(STATE_FILE):
+            return
+        try:
+            with open(STATE_FILE) as f:
+                self.open_positions = json.load(f)
+            logger.info(f"Restored {len(self.open_positions)} open position(s) from {STATE_FILE}")
+        except Exception as e:
+            logger.error(f"Could not load {STATE_FILE}: {e}")
+
+    def _save_state(self):
+        """Persist open positions atomically."""
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            tmp = STATE_FILE + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(self.open_positions, f, indent=2, default=str)
+            os.replace(tmp, STATE_FILE)
+        except Exception as e:
+            logger.error(f"Could not save {STATE_FILE}: {e}")
+
+    async def _place_exchange_stop(self, symbol: str, quantity: float, stop_price: float):
+        """Place a STOP_LOSS sell order for a long position. Returns order id or None."""
+        if self.dry_run:
+            return None
+        try:
+            order = await self.connector.create_stop_loss(symbol, 'sell', quantity, stop_price)
+            return order.get('orderId')
+        except Exception as e:
+            logger.error(f"{symbol} - Could not place exchange stop (client-side stop still active): {e}")
+            return None
+
+    async def _cancel_exchange_stop(self, symbol: str):
+        """Cancel the position's exchange stop, if any."""
+        position = self.open_positions.get(symbol, {})
+        order_id = position.get('stop_order_id')
+        if not order_id:
+            return
+        try:
+            await self.connector.cancel_order(str(order_id), symbol)
+        except Exception as e:
+            logger.warning(f"{symbol} - Could not cancel stop order {order_id}: {e}")
+        position['stop_order_id'] = None
+
+    async def _move_exchange_stop(self, symbol: str):
+        """Replace the exchange stop after a trailing/breakeven update."""
+        position = self.open_positions[symbol]
+        if position.get('stop_order_id'):
+            await self._cancel_exchange_stop(symbol)
+            position['stop_order_id'] = await self._place_exchange_stop(
+                symbol, position['quantity'], position['stop_loss']
+            )
+        self._save_state()
+
     def _roll_trading_day(self):
         """Reset daily counters at the start of a new (local) day."""
         today = datetime.now().date()
