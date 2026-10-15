@@ -39,6 +39,7 @@ from apps.executor.profiles import get_profile
 from apps.executor.pnl_logger import PnLLogger
 from config.safe_list import get_active_symbols, get_symbol_config
 
+os.makedirs('logs', exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

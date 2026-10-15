@@ -10,6 +10,7 @@ Key Features:
 - Fault tolerance with auto-reconnection
 """
 import asyncio
+import os
 import zmq
 import zmq.asyncio
 import msgpack
@@ -30,6 +31,7 @@ from core.config import settings
 from config.safe_list import get_active_symbols
 
 # Setup logging
+os.makedirs('logs', exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
