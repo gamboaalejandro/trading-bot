@@ -19,6 +19,10 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# All BinanceClient calls are blocking (requests); they run in a worker
+# thread so they do not freeze the event loop (ZMQ feed, position monitor).
+
+
 class TestnetConnector:
     """
     Connector for Binance Demo Mode using Native API.
@@ -77,10 +81,10 @@ class TestnetConnector:
             logger.info("Testing connection...")
             
             # Sync time with server
-            self.client.sync_time()
+            await asyncio.to_thread(self.client.sync_time)
             
             # Test connection by fetching balance
-            usdt_balance = self.client.get_balance('USDT')
+            usdt_balance = await asyncio.to_thread(self.client.get_balance, 'USDT')
             logger.info(f"[OK] Connected successfully. USDT Balance: {usdt_balance:.2f}")
             
             self._initialized = True
@@ -100,7 +104,7 @@ class TestnetConnector:
             await self.initialize()
         
         # CHANGED: Use native client
-        account = self.client.get_account()
+        account = await asyncio.to_thread(self.client.get_account)
         
         # Convert to ccxt-like format for compatibility
         balances = {}
@@ -120,7 +124,7 @@ class TestnetConnector:
             await self.initialize()
         
         # CHANGED: Use native client
-        return self.client.get_balance('USDT')
+        return await asyncio.to_thread(self.client.get_balance, 'USDT')
     
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -142,7 +146,7 @@ class TestnetConnector:
         binance_symbol = symbol.replace('/', '') if symbol else None
         
         # CHANGED: Use native client
-        open_orders = self.client.get_open_orders(binance_symbol)
+        open_orders = await asyncio.to_thread(self.client.get_open_orders, binance_symbol)
         
         return open_orders
     
@@ -182,12 +186,12 @@ class TestnetConnector:
         binance_symbol = symbol.replace('/', '')
         
         # Round quantity to proper precision to avoid "too much precision" errors
-        rounded_amount = self.client.round_quantity(binance_symbol, amount)
+        rounded_amount = await asyncio.to_thread(self.client.round_quantity, binance_symbol, amount)
         
         logger.info(f"Creating MARKET {side.upper()} order: {rounded_amount} {symbol}")
         
         # CHANGED: Use native client
-        order = self.client.create_order(
+        order = await asyncio.to_thread(self.client.create_order, 
             symbol=binance_symbol,
             side=side.upper(),
             order_type='MARKET',
@@ -230,7 +234,7 @@ class TestnetConnector:
         )
         
         # CHANGED: Use native client
-        order = self.client.create_order(
+        order = await asyncio.to_thread(self.client.create_order, 
             symbol=binance_symbol,
             side=side.upper(),
             order_type='LIMIT',
@@ -274,7 +278,7 @@ class TestnetConnector:
         )
         
         # CHANGED: Use native client  
-        order = self.client.create_order(
+        order = await asyncio.to_thread(self.client.create_order, 
             symbol=binance_symbol,
             side=side.upper(),
             order_type='STOP_LOSS',
@@ -297,7 +301,7 @@ class TestnetConnector:
         logger.info(f"Cancelling order {order_id} for {symbol}")
         
         # CHANGED: Use native client
-        result = self.client.cancel_order(binance_symbol, int(order_id))
+        result = await asyncio.to_thread(self.client.cancel_order, binance_symbol, int(order_id))
         logger.info(f"[OK] Order cancelled: {order_id}")
         
         return result
@@ -313,7 +317,7 @@ class TestnetConnector:
         logger.info(f"Cancelling all orders for {symbol}")
         
         # CHANGED: Use native client
-        result = self.client.cancel_all_orders(binance_symbol)
+        result = await asyncio.to_thread(self.client.cancel_all_orders, binance_symbol)
         logger.info(f"[OK] Cancelled {len(result)} orders")
         
         return result
@@ -360,7 +364,7 @@ class TestnetConnector:
         binance_symbol = symbol.replace('/', '')
         
         # CHANGED: Use native client
-        klines = self.client.get_klines(
+        klines = await asyncio.to_thread(self.client.get_klines, 
             symbol=binance_symbol,
             interval=timeframe,
             limit=limit
@@ -408,7 +412,7 @@ class TestnetConnector:
         binance_symbol = symbol.replace('/', '')
         
         # CHANGED: Use native client
-        ticker = self.client.get_ticker_24hr(binance_symbol)
+        ticker = await asyncio.to_thread(self.client.get_ticker_24hr, binance_symbol)
         
         # Convert to ccxt-like format
         return {

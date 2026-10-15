@@ -64,7 +64,7 @@ class MultiSymbolFeedHandler:
         
         # CHANGED: Use native WebSocket client
         # Demo mode is controlled by settings
-        demo_mode = getattr(settings, 'BINANCE_MODE', 'demo') == 'demo'
+        demo_mode = settings.USE_TESTNET
         
         self.websocket = BinanceWebSocket(
             demo_mode=demo_mode,
