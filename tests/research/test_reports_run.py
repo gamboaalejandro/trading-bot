@@ -363,3 +363,34 @@ def test_event_family_benchmarks_use_wf_oos_windows(runner, monkeypatch):
         assert tr is None
     else:
         pd.testing.assert_series_equal(tr, seen["oos"].trade_returns)
+
+
+# --------------------------------------------------------------------------- tail events
+def test_tail_table_reports_stops_slippage_and_stress_returns():
+    from apps.research.engine.portfolio_bt import BTResult
+    from apps.research.run import _tail_table
+
+    idx = pd.date_range("2022-11-07", periods=4, freq="D", tz="UTC")
+    returns = pd.Series([0.0, 0.01, -0.03, 0.0], index=idx)
+    weights = pd.DataFrame({"BTCUSDT": [0.2, 0.3, 0.0, 0.0], "ETHUSDT": [0.1, 0.1, 0.1, 0.1]}, index=idx)
+    trades = pd.DataFrame([
+        # stop on BTC: sells 1 at 99 against a 100 reference (100 bps adverse)
+        (idx[2] + pd.Timedelta(hours=5), "BTCUSDT", -1.0, 100.0, 99.0, -99.0, 0.1, 1.0, "stop_gap"),
+        (idx[1], "ETHUSDT", 2.0, 10.0, 10.01, 20.02, 0.02, 0.02, "rebalance"),
+    ], columns=["time", "symbol", "qty", "ref_price", "price", "notional", "commission", "slippage", "reason"])
+    res = BTResult(equity=(1 + returns).cumprod(), returns=returns, weights=weights, trades=trades,
+                   costs=pd.DataFrame(), meta={"counters": {"stops": 7, "liq_rejected": 0}})
+    worst = BTResult(equity=(1 + returns).cumprod(), returns=returns * 2, weights=weights,
+                     trades=trades, costs=pd.DataFrame(), meta={})
+    tab = _tail_table({"T3": res}, {"worst_bar": {"T3": worst}})
+    row = tab.loc[("T3", "2022-11-09")]
+    assert row["return"] == pytest.approx(-0.03)
+    assert row["gross_prev_close"] == pytest.approx(0.4)
+    assert row["stops_filled"] == 1 and row["stops_gapped"] == 1
+    assert row["stop_slip_bps"] == pytest.approx(100.0)
+    assert row["liquidations"] == 0
+    assert row["ret_worst_bar"] == pytest.approx(-0.06)
+    assert row["stops_filled_worst_bar"] == 1
+    assert row["stops_total"] == 7
+    # days outside the series are skipped
+    assert ("T3", "2021-05-19") not in tab.index
