@@ -134,8 +134,10 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments (secrets are never versioned; .env.example holds names only)
 .env
+.env*
+!.env.example
 .envrc
 .venv
 env/
@@ -209,3 +211,6 @@ __marimo__/
 logs/*
 !logs/.gitkeep
 state/
+
+# Official audit downloads (scripts/fetch_official_audit_data.py)
+data/audit/
