@@ -27,6 +27,10 @@ $env:PYTHONPATH = $PROJECT_ROOT
 Write-Host "Setting PYTHONPATH to: $PROJECT_ROOT" -ForegroundColor Gray
 Write-Host ""
 
+# Force simulation (TRADING_MODE is authoritative)
+$env:TRADING_MODE = "dry_run"
+$env:DRY_RUN = "true"
+
 # Check if virtual environment exists
 $VENV_PYTHON = Join-Path $PROJECT_ROOT "venv\Scripts\python.exe"
 
