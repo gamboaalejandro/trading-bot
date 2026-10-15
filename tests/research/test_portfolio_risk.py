@@ -137,3 +137,20 @@ def test_check_liquidation_enforces_leverage_caps():
     # Worst wick larger than the 1.5x liquidation distance (~66.3 %) blocks BTC at 1.5x.
     assert not check_liquidation("BTCUSDT", 100.0, 95.0, 1.5, +1, 0.7, cfg)
     assert check_liquidation("BTCUSDT", 100.0, 95.0, 1.0, +1, 0.7, cfg)
+
+
+def test_research_and_live_loaders_agree_on_shared_file():
+    """config/risk_limits.yml is shared with the live kill-switch: same values."""
+    from apps.live.kill_switch import load_risk_limits
+
+    cfg = load_risk_config(RISK_LIMITS_PATH)
+    live = load_risk_limits(RISK_LIMITS_PATH)
+    assert cfg.daily_block_entries == live.kill_switch.daily_loss_block_entries
+    assert cfg.daily_flatten_leveraged == live.kill_switch.daily_loss_flatten
+    assert cfg.dd_half_risk == live.kill_switch.drawdown_half_risk
+    assert cfg.dd_halt == live.kill_switch.drawdown_halt
+    assert cfg.half_risk_mult == live.kill_switch.reduced_risk_multiplier
+    assert cfg.max_lev_major == live.leverage.max_leverage_major
+    assert cfg.max_lev_alt == live.leverage.max_leverage_alt
+    assert cfg.hard_max_leverage == live.leverage.account_max_leverage
+    assert set(cfg.majors) == set(live.leverage.majors)

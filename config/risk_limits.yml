@@ -1,36 +1,51 @@
 # Risk limits fixed by the USER (PLAN.md §7.6, §1.4, §5.6). They are NOT optimised.
-# Read by apps/research/portfolio/risk.py (simulated kill-switch in backtests)
-# and intended for apps/live/kill_switch.py. All values are fractions.
 #
-# User decisions (2026-10-15): capital < 10k USD; max total drawdown 20 %;
-# max daily loss 5 %; max accepted leverage 3x on ISOLATED margin (the plan
-# uses <= 1x on alts and <= 1.5x on BTC/ETH, inside that ceiling).
+# Single source of truth read by:
+#   - apps/live/kill_switch.py      (live kill-switch; every key is mandatory:
+#     no fallback defaults, and without a valid file the bot refuses to start
+#     in TRADING_MODE=live)
+#   - apps/research/portfolio/risk.py (simulated kill-switch in backtests)
+#
+# Fractions everywhere: -0.02 == -2 %, 0.10 == 10 %.
+#
+# User decisions (2026-10-15): capital < 10k USD; max accepted leverage 3x on
+# ISOLATED margin (the plan itself stays at <=1x alts / <=1.5x BTC-ETH);
+# max tolerated drawdown 20 % total and 5 % daily; universe ~top 10 liquid coins.
 
-daily_loss:
-  block_entries: -0.02      # daily P&L <= -2 %: no new entries / no increases
-  flatten_leveraged: -0.05  # daily P&L <= -5 %: close L > 1 and shorts, block everything, alert
+version: 1
+user_confirmed: true          # must be true for live mode
+confirmed_on: "2026-10-15"
 
-drawdown:
-  half_risk: 0.10           # drawdown from peak >= 10 %: risk multiplier 0.5
-  halt: 0.20                # drawdown from peak >= 20 %: close everything, stop, human review
-  half_risk_mult: 0.5
-
-leverage:
-  max_alt: 1.0              # effective leverage per position, altcoins
-  max_major: 1.5            # effective leverage per position, BTC/ETH
-  hard_max: 3.0             # user's absolute ceiling (isolated margin only)
-  margin_type: ISOLATED
-  majors: [BTCUSDT, ETHUSDT]
+kill_switch:
+  # Daily P&L is measured against equity at 00:00 UTC.
+  daily_loss_block_entries: -0.02   # <= -2 %: no new entries for the rest of the UTC day
+  daily_loss_flatten: -0.05         # <= -5 %: close L>1 positions and shorts, block everything, alert
+  # Drawdown is measured from the equity high-water mark.
+  drawdown_half_risk: 0.10          # >= 10 %: risk multiplier 0.5
+  drawdown_halt: 0.20               # >= 20 %: full stop, manual review required to resume
+  reduced_risk_multiplier: 0.5
 
 exposure:
-  gross_long: 1.0
-  gross_short: 0.5
-  cap_major: 0.35
-  cap_alt: 0.20
-  alt_long: 0.60
-  risk_per_trade_major: 0.005
-  risk_per_trade_alt: 0.0025
+  max_gross_long: 1.0               # gross long exposure <= 1x NAV
+  max_gross_short: 0.5              # gross short exposure <= 0.5x NAV
+  max_weight_major: 0.35            # per-coin cap for BTC/ETH
+  max_weight_alt: 0.20              # per-coin cap for altcoins
+  max_alts_total: 0.60              # all altcoins treated as one cluster
+  max_beta_btc: 1.0                 # aggregate beta to BTC
+  max_risk_per_trade_major: 0.005   # 0.5 % NAV per trade (BTC/ETH)
+  max_risk_per_trade_alt: 0.0025    # 0.25 % NAV per trade (alts and tactical engines)
+
+leverage:
+  margin_type: ISOLATED
+  position_mode: ONE_WAY
+  max_leverage_major: 1.5           # effective leverage BTC/ETH
+  max_leverage_alt: 1.0             # effective leverage altcoins
+  account_max_leverage: 3.0         # user's absolute ceiling (never reached by the plan)
+  majors: [BTCUSDT, ETHUSDT]
+
+capital:
+  max_capital_usdt: 10000           # cap on capital deposited on the exchange
 
 gate:
-  max_dd_oos_spot: 0.20     # §5.6 point 8, tightened to the user's 20 % tolerance
+  max_dd_oos_spot: 0.20             # §5.6 point 8, tightened to the user's 20 % tolerance
   max_dd_oos_futures: 0.20

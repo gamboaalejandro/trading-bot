@@ -96,22 +96,21 @@ def load_risk_config(path: Path | str = RISK_LIMITS_PATH) -> RiskConfig:
     with path.open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     try:
-        daily = raw["daily_loss"]
-        dd = raw["drawdown"]
+        ks = raw["kill_switch"]
         lev = raw["leverage"]
         values = dict(
-            daily_block_entries=float(daily["block_entries"]),
-            daily_flatten_leveraged=float(daily["flatten_leveraged"]),
-            dd_half_risk=float(dd["half_risk"]),
-            dd_halt=float(dd["halt"]),
-            half_risk_mult=float(dd.get("half_risk_mult", 0.5)),
-            max_lev_alt=float(lev["max_alt"]),
-            max_lev_major=float(lev["max_major"]),
-            hard_max_leverage=float(lev["hard_max"]),
+            daily_block_entries=float(ks["daily_loss_block_entries"]),
+            daily_flatten_leveraged=float(ks["daily_loss_flatten"]),
+            dd_half_risk=float(ks["drawdown_half_risk"]),
+            dd_halt=float(ks["drawdown_halt"]),
+            half_risk_mult=float(ks["reduced_risk_multiplier"]),
+            max_lev_alt=float(lev["max_leverage_alt"]),
+            max_lev_major=float(lev["max_leverage_major"]),
+            hard_max_leverage=float(lev["account_max_leverage"]),
         )
         if "majors" in lev:
             values["majors"] = tuple(lev["majors"])
-        if str(lev.get("margin_type", "ISOLATED")).upper() != "ISOLATED":
+        if str(lev["margin_type"]).upper() != "ISOLATED":
             raise RiskConfigError("only ISOLATED margin is allowed")
     except (KeyError, TypeError) as exc:
         raise RiskConfigError(f"incomplete risk limits in {path}: {exc}") from exc
