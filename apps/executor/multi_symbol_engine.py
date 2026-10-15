@@ -60,6 +60,33 @@ def timeframe_to_seconds(timeframe: str) -> int:
     return int(timeframe[:-1]) * units[timeframe[-1]]
 
 
+def base_asset(symbol: str) -> str:
+    """'BTC/USDT' -> 'BTC'."""
+    return symbol.split('/')[0]
+
+
+def fill_summary(order: Dict, base: str) -> tuple:
+    """
+    Summarize a Binance spot order response.
+
+    Returns (net_base_quantity, average_price, fee_in_quote): quantity is
+    executedQty minus commissions charged in the base asset, which are not
+    in the wallet and cannot be sold back.
+    """
+    executed = float(order.get('executedQty', 0) or 0)
+    quote = float(order.get('cummulativeQuoteQty', 0) or 0)
+    avg_price = quote / executed if executed > 0 else 0.0
+    base_fee = 0.0
+    quote_fee = 0.0
+    for fill in order.get('fills', []):
+        commission = float(fill.get('commission', 0) or 0)
+        if fill.get('commissionAsset') == base:
+            base_fee += commission
+        elif fill.get('commissionAsset') == 'USDT':
+            quote_fee += commission
+    return executed - base_fee, avg_price, quote_fee
+
+
 class MultiSymbolEngine:
     """
     Multi-Symbol Trading Engine
@@ -422,6 +449,12 @@ class MultiSymbolEngine:
                     else:
                         logger.debug(f"{symbol}: SELL signal but position is SHORT (already selling)")
                         return
+
+                # Spot cannot open shorts: a SELL without an open LONG would
+                # sell coins the bot never bought
+                if signal.signal_type.value == 'sell':
+                    logger.info(f"[SKIP] {symbol} - SELL signal without open position (spot is long-only)")
+                    return
                 
                 # Check if actionable (for opening new positions)
                 if signal.is_actionable():
@@ -522,11 +555,16 @@ class MultiSymbolEngine:
             config = get_symbol_config(symbol)
             max_position_usd = config.get('max_position_size_usd', 1000)
             
-            # Respect max position size
+            # Respect max position size and the free USDT (keep 2% for fees)
+            max_position_usd = min(max_position_usd, balance * 0.98)
             position_value_usd = quantity * current_price
             if position_value_usd > max_position_usd:
                 quantity = max_position_usd / current_price
                 position_value_usd = max_position_usd
+
+            if position_value_usd < self.risk_manager.cfg.min_notional_usdt:
+                logger.warning(f"{symbol} - Notional ${position_value_usd:.2f} below exchange minimum, skipping")
+                return
             
             # Log trade details
             logger.info(f"\n{'='*60}")
@@ -556,8 +594,15 @@ class MultiSymbolEngine:
             )
             
             if order_result:
-                logger.info(f" {symbol} - Order placed successfully")
-                logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
+                # Track what was really filled: net of commission charged in
+                # the base asset, at the average fill price
+                quantity, current_price, _ = fill_summary(order_result, base_asset(symbol))
+                if quantity <= 0:
+                    logger.error(f" {symbol} - Order not filled: {order_result.get('status')}")
+                    return
+                order_id = order_result.get('orderId', 'N/A')
+                logger.info(f" {symbol} - Order filled: {quantity:.8f} @ ${current_price:,.4f}")
+                logger.info(f"Order ID: {order_id}")
                 
                 # Get TP/SL configuration from .env (Spot optimized)
                 tp_rr_ratio = float(getattr(settings, 'TP_RR_RATIO', 3.0))  # Default 3:1 for Spot
@@ -587,7 +632,7 @@ class MultiSymbolEngine:
                     'quantity': quantity,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
-                    'order_id': order_result.get('id', 'N/A'),
+                    'order_id': order_id,
                     'timestamp': datetime.now().isoformat()
                 }
                 logger.info(f" Position tracked: {symbol} {signal.signal_type.value.upper()} @ ${current_price:,.2f}")
@@ -599,7 +644,7 @@ class MultiSymbolEngine:
                     side=signal.signal_type.value,
                     entry_price=current_price,
                     quantity=quantity,
-                    order_id=order_result.get('id', 'N/A'),
+                    order_id=order_id,
                     timestamp=datetime.now()
                 )
                 
@@ -762,23 +807,32 @@ class MultiSymbolEngine:
                 del self.open_positions[symbol]
                 return
             
+            # Never sell more than what is actually free in the wallet
+            close_quantity = position['quantity']
+            if close_side == 'sell':
+                balances = await self.connector.get_balance()
+                free_base = balances.get(base_asset(symbol), {}).get('free', 0.0)
+                close_quantity = min(close_quantity, free_base)
+
             # Execute real closing order
             order_result = await self.connector.place_order(
                 symbol=symbol,
                 side=close_side,
-                quantity=position['quantity'],
+                quantity=close_quantity,
                 price=current_price,
                 order_type='market'
             )
             
             if order_result:
                 entry = position['entry_price']
-                quantity = position['quantity']
+                quantity, filled_price, quote_fee = fill_summary(order_result, base_asset(symbol))
+                if filled_price > 0:
+                    current_price = filled_price
                 
                 if position['side'] == 'buy':
-                    pnl = (current_price - entry) * quantity
+                    pnl = (current_price - entry) * quantity - quote_fee
                 else:
-                    pnl = (entry - current_price) * quantity
+                    pnl = (entry - current_price) * quantity - quote_fee
                 
                 logger.info(f"{'='*60}")
                 logger.info(f"POSITION CLOSED: {symbol}")
@@ -792,7 +846,7 @@ class MultiSymbolEngine:
                 roi = (pnl / (entry * quantity)) * 100
                 
                 logger.info(f"Realized PNL: ${pnl:,.2f} ({'+' if pnl > 0 else ''}{roi:.2f}%)")
-                logger.info(f"Order ID: {order_result.get('id', 'N/A')}")
+                logger.info(f"Order ID: {order_result.get('orderId', 'N/A')}")
                 logger.info(f"{'='*60}\n")
                 
                 # Log exit to P&L tracker
