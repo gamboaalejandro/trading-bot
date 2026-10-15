@@ -217,6 +217,15 @@ class BinanceClient:
                 logger.error(f"Response: {e.response.text}")
             raise
     
+    def get_server_time(self) -> int:
+        """
+        Exchange server time in milliseconds.
+
+        Endpoint: GET /api/v3/time
+        Weight: 1
+        """
+        return int(self._request('GET', '/api/v3/time')['serverTime'])
+
     def sync_time(self) -> None:
         """
         Synchronize with Binance server time to prevent timestamp errors.
@@ -290,7 +299,8 @@ class BinanceClient:
         interval: str = '1m',
         limit: int = 100,
         start_time: Optional[int] = None,
-        end_time: Optional[int] = None
+        end_time: Optional[int] = None,
+        closed_only: bool = False,
     ) -> List[List]:
         """
         Get kline/candlestick data.
@@ -301,9 +311,11 @@ class BinanceClient:
             limit: Number of klines (max 1000)
             start_time: Start time in milliseconds
             end_time: End time in milliseconds
+            closed_only: If True, drop every row whose closeTime >= serverTime
+                (the candle still forming is never returned; PLAN §4.3)
             
         Returns:
-            List of klines: [time, open, high, low, close, volume, ...]
+            List of klines: [time, open, high, low, close, volume, closeTime, ...]
             
         Endpoint: GET /api/v3/klines
         Weight: 2
@@ -319,7 +331,11 @@ class BinanceClient:
         if end_time:
             params['endTime'] = end_time
         
-        return self._request('GET', '/api/v3/klines', params=params)
+        rows = self._request('GET', '/api/v3/klines', params=params)
+        if closed_only and rows:
+            server_time = self.get_server_time()
+            rows = [r for r in rows if int(r[6]) < server_time]
+        return rows
     
     def get_exchange_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -436,7 +452,8 @@ class BinanceClient:
         quantity: float,
         price: Optional[float] = None,
         time_in_force: str = 'GTC',
-        stop_price: Optional[float] = None
+        stop_price: Optional[float] = None,
+        new_client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new order.
@@ -449,6 +466,7 @@ class BinanceClient:
             price: Limit price (required for LIMIT orders)
             time_in_force: 'GTC' (Good Till Cancel), 'IOC', 'FOK'
             stop_price: Stop price (required for STOP orders)
+            new_client_order_id: Optional deterministic id (idempotent retries)
             
         Returns:
             Order information
@@ -473,6 +491,9 @@ class BinanceClient:
             if not stop_price:
                 raise ValueError("Stop price is required for STOP orders")
             params['stopPrice'] = stop_price
+
+        if new_client_order_id:
+            params['newClientOrderId'] = new_client_order_id
         
         logger.info(f"Creating order: {side} {quantity} {symbol} @ {price or 'MARKET'}")
         
@@ -501,13 +522,19 @@ class BinanceClient:
         
         return self._request('DELETE', '/api/v3/order', signed=True, params=params)
     
-    def get_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
+    def get_order(
+        self,
+        symbol: str,
+        order_id: Optional[int] = None,
+        orig_client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Query an order (open or closed) by id.
+        Query an order (open or closed) by id or by client order id.
 
         Args:
             symbol: Trading pair
             order_id: Order ID
+            orig_client_order_id: Client order id (used when order_id is None)
 
         Returns:
             Order status (status, executedQty, cummulativeQuoteQty, stopPrice...)
@@ -515,10 +542,13 @@ class BinanceClient:
         Endpoint: GET /api/v3/order (SIGNED)
         Weight: 4
         """
-        params = {
-            'symbol': symbol,
-            'orderId': order_id
-        }
+        if order_id is None and not orig_client_order_id:
+            raise ValueError("order_id or orig_client_order_id is required")
+        params: Dict[str, Any] = {'symbol': symbol}
+        if order_id is not None:
+            params['orderId'] = order_id
+        else:
+            params['origClientOrderId'] = orig_client_order_id
         return self._request('GET', '/api/v3/order', signed=True, params=params)
 
     def cancel_replace_order(

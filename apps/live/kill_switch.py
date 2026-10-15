@@ -11,7 +11,9 @@ Levels, evaluated on every equity update:
                      new orders except reduce-only ones, alert.
                      Lasts until the next UTC day.
 - HALT             : drawdown from the high-water mark >= ``drawdown_halt`` (20 %).
-                     Same actions as FLATTEN, but sticky: only a manual
+                     Full stop: every position is closed (reduce-only
+                     orders) and all new orders are blocked, as in the
+                     research ``apply_kill_switch``. Sticky: only a manual
                      ``reset_halt`` (human review) clears it.
 
 Daily P&L is measured against the equity at 00:00 UTC (explicit snapshot from
