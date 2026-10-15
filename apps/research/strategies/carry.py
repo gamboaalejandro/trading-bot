@@ -39,8 +39,12 @@ capital of a cycle is the spot purchase plus the isolated margin of the short
 isolated liquidation price is at least ``1 + squeeze_move`` (+100 %) above the
 entry (``engine.liquidation.liq_price``; about 0.98x with MMR = 1 %).
 Candidates are ranked by APR. If the perp's high ever reaches the liquidation
-price the short is liquidated (its margin is lost) and the spot leg is sold at
-the bar's close (``liquidations`` counter).
+price the short is liquidated and the spot leg is sold at the bar's close
+(``liquidations`` counter). As on Binance isolated margin, the short loses its
+whole isolated margin ``Q * P_fill / L``: the perp exit is booked at the
+bankruptcy price ``P_fill * (1 + 1/L)``, the gap between it and the liquidation
+price is the liquidation clearance fee (booked as commission) and the
+``cycles`` table carries the margin lost in ``liquidation_loss``.
 
 Universe: BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, LINK, DOT. BNBUSDT is never
 used (anomalous funding, PLAN §5.2.2): passing it raises :class:`CarryError`.
@@ -92,7 +96,7 @@ UNVERIFIED_WARNING = ("unverified P&L: local funding not checked against /fapi/v
                       "/fapi/v1/fundingInfo (PLAN §2.7, §8)")
 CYCLE_COLUMNS = ["symbol", "entry_time", "exit_time", "qty", "leverage", "spot_entry", "perp_entry",
                  "spot_exit", "perp_exit", "funding", "basis_pnl", "commission", "slippage", "net",
-                 "exit_reason"]
+                 "exit_reason", "liquidation_loss"]
 TRADE_COLUMNS = ["time", "symbol", "leg", "qty", "ref_price", "price", "notional", "commission",
                  "slippage", "reason"]
 LEDGER_COLUMNS = ["commission", "slippage", "funding"]
@@ -399,20 +403,29 @@ def run_carry_bt(
         side_slip = resolve_slip(s, t, ex_spot[s].loc[t].to_dict(), cost, fixed_slip_bps, exit_only=True)
         sp, sfee, sslip = leg_fill(t, s, "spot", -c.qty, spot_ref, side_slip, reason)
         cash += c.qty * sp - sfee
+        liq_loss = 0.0
         if liquidated:
-            # Isolated margin lost at the liquidation price (no fill, no fee modelled beyond it).
-            pp, pfee, pslip = perp_ref, 0.0, 0.0
-            trades.append((t, s, "perp", c.qty, perp_ref, perp_ref, c.qty * perp_ref, 0.0, 0.0, reason))
+            # Binance isolated liquidation: the position is taken over at ``perp_ref`` (the
+            # liquidation price) and whatever margin is left between it and the bankruptcy
+            # price ``perp_fill + margin / qty`` goes to the insurance fund as the
+            # liquidation clearance fee. The short therefore loses its WHOLE isolated
+            # margin. The fill is booked at the bankruptcy price and the clearance fee
+            # (``qty * (bankruptcy - liq)``) as commission; basis drift stays at ``perp_ref``.
+            pp = c.perp_fill + c.margin / c.qty
+            pfee, pslip = max(c.qty * (pp - perp_ref), 0.0), 0.0
+            led(t, s)[0] += pfee
+            trades.append((t, s, "perp", c.qty, perp_ref, pp, c.qty * pp, pfee, 0.0, reason))
+            liq_loss = c.margin
         else:
             perp_slip = resolve_slip(s, t, ex_perp[s].loc[t].to_dict(), cost, fixed_slip_bps, exit_only=True)
             pp, pfee, pslip = leg_fill(t, s, "perp", c.qty, perp_ref, perp_slip, reason)
-        cash += -c.qty * (pp - c.perp_fill) - pfee
+        cash += -c.qty * (pp - c.perp_fill) - (0.0 if liquidated else pfee)
         comm = c.commission + sfee + pfee
         slip = c.slippage + sslip + pslip
         basis_pnl = c.qty * ((spot_ref - c.spot_ref) - (perp_ref - c.perp_ref))
         net = c.funding + basis_pnl - comm - slip
         done.append((s, c.entry_time, t, c.qty, c.lev, c.spot_fill, c.perp_fill, sp, pp, c.funding,
-                     basis_pnl, comm, slip, net, reason))
+                     basis_pnl, comm, slip, net, reason, liq_loss))
         counters["exits"] += 1
 
     for i, t in enumerate(times):

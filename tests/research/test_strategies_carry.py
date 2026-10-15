@@ -254,7 +254,49 @@ def test_squeeze_liquidates_the_short_and_closes_the_spot():
     assert res.meta["counters"]["liquidations"] >= 1
     cyc = res.meta["cycles"].iloc[0]
     assert cyc.exit_reason == "liquidation"
-    assert cyc.perp_exit == pytest.approx(liq_price(cyc.perp_entry, cyc.leverage, -1))
+    # The perp leg is booked at the bankruptcy price (whole isolated margin lost).
+    assert cyc.perp_exit == pytest.approx(cyc.perp_entry * (1 + 1 / cyc.leverage))
+    assert cyc.perp_exit > liq_price(cyc.perp_entry, cyc.leverage, -1)
+
+
+def test_liquidation_loses_the_whole_isolated_margin():
+    spot, perp, fund = market()
+    fund.loc[fund.index >= "2024-01-10"] = 0.0   # no re-entry after the squeeze: one cycle only
+    jump = perp.index >= "2024-01-10"
+    perp.loc[jump, ["open", "low", "close"]] = 150.0
+    perp.loc[jump, "high"] = 250.0
+    spot.loc[spot.index >= "2024-01-10", ["open", "high", "low", "close"]] = 150.0
+    res = run1(spot, perp, fund)
+    assert len(res.meta["cycles"]) == 1 and res.meta["open_cycles"] == []
+    cyc = res.meta["cycles"].iloc[0]
+    assert cyc.exit_reason == "liquidation"
+    margin = cyc.qty * cyc.perp_entry / cyc.leverage
+    liq = liq_price(cyc.perp_entry, cyc.leverage, -1)
+    assert cyc.liquidation_loss == pytest.approx(margin)
+    # Net cash of the perp leg (zero fees/slippage otherwise): exactly -margin.
+    tr = res.trades[(res.trades["leg"] == "perp")]
+    exit_row = tr[tr["reason"] == "liquidation"].iloc[0]
+    perp_cash = -cyc.qty * (exit_row["price"] - cyc.perp_entry)
+    assert perp_cash == pytest.approx(-margin)
+    assert margin > cyc.qty * (liq - cyc.perp_entry)          # more than the old liq-price booking
+    # The clearance fee (bankruptcy - liq) is booked as commission in trades, ledger and cycle.
+    fee = cyc.qty * (exit_row["price"] - liq)
+    assert exit_row["commission"] == pytest.approx(fee) and fee > 0
+    assert cyc.commission == pytest.approx(fee)
+    assert res.costs["commission"].sum() == pytest.approx(fee)
+    # Equity: spot leg gain + funding - margin, and the breakdown reconciles.
+    spot_pnl = cyc.qty * (cyc.spot_exit - cyc.spot_entry)
+    final = res.equity.iloc[-1] - 10_000.0
+    assert final == pytest.approx(spot_pnl + cyc.funding - margin)
+    assert final == pytest.approx(res.meta["pnl_breakdown"]["net"])
+    assert cyc.net == pytest.approx(final)
+
+
+def test_signal_exit_has_no_liquidation_loss():
+    spot, perp, fund = market()
+    spot.loc[spot.index >= "2024-01-08", ["open", "high", "low", "close"]] = 100.5
+    cyc = run1(spot, perp, fund).meta["cycles"]
+    assert (cyc["liquidation_loss"] == 0.0).all()
 
 
 def test_missing_price_with_open_cycle_raises():
