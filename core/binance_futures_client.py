@@ -463,7 +463,9 @@ class BinanceFuturesClient:
         """
         Catastrophe stop: POST /fapi/v1/algoOrder with algoType=CONDITIONAL,
         type=STOP_MARKET, reduceOnly=true and workingType=MARK_PRICE.
-        [VERIFICAR parameter names against the official New-Algo-Order docs.]
+        priceProtect is never enabled (see inline comment).
+        [VERIFICAR parameter names against the official New-Algo-Order docs and
+        the testnet before live use.]
         """
         side = side.upper()
         if side not in ("BUY", "SELL"):
@@ -487,7 +489,10 @@ class BinanceFuturesClient:
             "triggerPrice": fmt_decimal(trigger_price),
             "workingType": working_type,
             "reduceOnly": True,
-            "priceProtect": True,
+            # priceProtect is deliberately NOT sent (exchange default FALSE): with it
+            # enabled Binance skips the trigger when mark and last price diverge
+            # beyond triggerProtect, which is exactly what happens in the crash/wick
+            # events this stop exists for (2021-05-19, 2022-11-09, 2025-10-10).
             "clientAlgoId": client_algo_id,
         }
         logger.info("Futures algo stop %s %s qty=%s trigger=%s id=%s",

@@ -211,6 +211,16 @@ def test_stop_market_algo_params(client):
     assert "signature" in p
 
 
+@responses.activate
+def test_stop_market_algo_does_not_enable_price_protect(client):
+    # priceProtect would block the trigger when mark/last diverge (crash wicks).
+    responses.post(f"{BASE}/fapi/v1/algoOrder", json={"algoId": 1, "clientAlgoId": "stop-2"})
+    client.new_stop_market_algo("ETHUSDT", "BUY", 0.5, 4000, "stop-2")
+    p = _params(responses.calls[0])
+    assert p.get("priceProtect", "FALSE").upper() == "FALSE"
+    assert "priceprotect" not in {k.lower() for k, v in p.items() if str(v).lower() == "true"}
+
+
 def test_stop_market_algo_requires_reduce_only(client):
     with pytest.raises(ValueError):
         client.new_stop_market_algo("BTCUSDT", "SELL", 1, 100, "s", reduce_only=False)
