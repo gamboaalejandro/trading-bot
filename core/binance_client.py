@@ -78,6 +78,7 @@ class BinanceClient:
         
         # Server time offset (for timestamp sync)
         self._time_offset = 0
+        self._exchange_info_cache: Dict[str, Dict[str, Any]] = {}
         
         logger.info(f"Binance Client initialized: {'DEMO MODE' if demo_mode else 'PRODUCTION'}")
         logger.info(f"Base URL: {self.base_url}")
@@ -292,11 +293,18 @@ class BinanceClient:
         Endpoint: GET /api/v3/exchangeInfo
         Weight: 20
         """
+        # Trading rules rarely change: cache per symbol (weight 20 per call)
+        cache_key = symbol or '*'
+        if cache_key in self._exchange_info_cache:
+            return self._exchange_info_cache[cache_key]
+
         params = {}
         if symbol:
             params['symbol'] = symbol
         
-        return self._request('GET', '/api/v3/exchangeInfo', params=params)
+        info = self._request('GET', '/api/v3/exchangeInfo', params=params)
+        self._exchange_info_cache[cache_key] = info
+        return info
     
     def round_quantity(self, symbol: str, quantity: float) -> float:
         """
