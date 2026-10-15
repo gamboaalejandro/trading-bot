@@ -14,6 +14,10 @@ Levels, evaluated on every equity update:
                      Same actions as FLATTEN, but sticky: only a manual
                      ``reset_halt`` (human review) clears it.
 
+Daily P&L is measured against the equity at 00:00 UTC (explicit snapshot from
+the caller, else the last equity persisted before the day change). Updates
+older than the last accepted one are rejected (``StaleObservationError``).
+
 Independently, drawdown >= ``drawdown_half_risk`` (10 %) halves the risk
 multiplier applied to target weights.
 
@@ -59,6 +63,12 @@ _EPS = 1e-12
 
 class RiskLimitsError(Exception):
     """Missing, incomplete or invalid risk limits configuration."""
+
+
+class StaleObservationError(ValueError):
+    """Equity observation older than the last one registered (out-of-order
+    event, replayed message, clock skew). It is rejected so it can never
+    roll the daily bookkeeping back and clear an active lock."""
 
 
 class KillSwitchLevel(IntEnum):
@@ -324,13 +334,19 @@ class KillSwitchDecision:
 
 @dataclass
 class KillSwitchState:
-    day: str | None = None
+    day: str | None = None          # ISO date (UTC) of the current trading day
+    last_ts: str | None = None      # ISO timestamp (UTC) of the last accepted update
     day_start_equity: float | None = None
     peak_equity: float | None = None
     daily_level: int = int(KillSwitchLevel.NORMAL)
     halted: bool = False
     halt_reason: str = ""
     last_equity: float | None = None
+
+
+def _valid_equity(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
 
 
 def _utc_day(now: datetime) -> date:
@@ -382,21 +398,53 @@ class KillSwitch:
                 logger.exception("kill-switch alert callback failed")
 
     # -- core ----------------------------------------------------------------
-    def update(self, equity: float, now: datetime | None = None) -> KillSwitchDecision:
-        """Register the current equity (USDT) and return the active decision."""
-        if not isinstance(equity, (int, float)) or not math.isfinite(equity) or equity < 0:
+    def update(self, equity: float, now: datetime | None = None,
+               day_start_equity: float | None = None) -> KillSwitchDecision:
+        """Register the current equity (USDT) and return the active decision.
+
+        Daily P&L is measured against the equity at 00:00 UTC. When an update
+        opens a new UTC day, the reference is ``day_start_equity`` if the caller
+        provides an explicit midnight snapshot; otherwise the last persisted
+        equity (the closest known value to midnight) is used, so losses made
+        between the last update of the previous day and this one (restart,
+        downtime, sparse loop) still count against the new day's limits.
+        ``day_start_equity`` is ignored when the update does not open a new day.
+
+        Observations older than the last accepted one raise
+        ``StaleObservationError`` and leave the state untouched.
+        """
+        if not _valid_equity(equity):
             raise ValueError(f"invalid equity {equity!r}")
+        if day_start_equity is not None and not _valid_equity(day_start_equity):
+            raise ValueError(f"invalid day_start_equity {day_start_equity!r}")
         now = now or datetime.now(timezone.utc)
-        day = _utc_day(now).isoformat()
+        today = _utc_day(now)
+        now_utc = now.astimezone(timezone.utc)
         st = self.state
         ks = self.limits.kill_switch
-        prev_level = self.level
 
-        if st.day != day:
-            # New UTC day: reference equity is the first observation of the day.
+        if st.last_ts is not None and now_utc < datetime.fromisoformat(st.last_ts):
+            raise StaleObservationError(
+                f"observation at {now_utc.isoformat()} is older than the last one ({st.last_ts})")
+        stored_day = date.fromisoformat(st.day) if st.day is not None else None
+        if stored_day is not None and today < stored_day:
+            raise StaleObservationError(
+                f"observation day {today.isoformat()} is before the current day {st.day}")
+
+        prev_level = self.level
+        day = today.isoformat()
+        if stored_day is None or today > stored_day:
+            # New UTC day: reference is the equity at (or closest before) 00:00 UTC.
+            if day_start_equity is not None:
+                reference = float(day_start_equity)
+            elif st.last_equity is not None:
+                reference = float(st.last_equity)
+            else:
+                reference = float(equity)   # very first observation ever
             st.day = day
-            st.day_start_equity = float(equity)
+            st.day_start_equity = reference
             st.daily_level = int(KillSwitchLevel.NORMAL)
+        st.last_ts = now_utc.isoformat()
         st.peak_equity = max(st.peak_equity or 0.0, float(equity))
         st.last_equity = float(equity)
 

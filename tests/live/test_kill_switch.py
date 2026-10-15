@@ -12,6 +12,7 @@ from apps.live.kill_switch import (
     KillSwitchLevel,
     PositionView,
     RiskLimitsError,
+    StaleObservationError,
     assert_can_start,
     check_leverage,
     check_target_weights,
@@ -271,6 +272,101 @@ def test_state_survives_restart(tmp_path, limits):
     d = restarted.update(9_600, T0 + timedelta(hours=2))
     assert d.level == KillSwitchLevel.FLATTEN
     assert d.daily_return == pytest.approx(-0.04)
+
+
+# --- review r1: out-of-order timestamps and midnight reference ------------------
+
+def test_previous_day_timestamp_does_not_clear_flatten(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, T0)
+    assert ks.update(9_400, T0 + timedelta(hours=1)).level == KillSwitchLevel.FLATTEN
+    with pytest.raises(StaleObservationError):
+        ks.update(9_400, T0 - timedelta(hours=1))         # previous UTC day, 23:05
+    d = ks.update(9_400, T0 + timedelta(hours=2))
+    assert d.level == KillSwitchLevel.FLATTEN
+    assert d.daily_return == pytest.approx(-0.06)
+    assert ks.state.day_start_equity == 10_000
+
+
+def test_previous_day_timestamp_does_not_clear_block_entries(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, T0)
+    assert ks.update(9_750, T0 + timedelta(hours=1)).level == KillSwitchLevel.BLOCK_ENTRIES
+    with pytest.raises(StaleObservationError):
+        ks.update(9_750, T0 - timedelta(minutes=10))
+    d = ks.update(9_760, T0 + timedelta(hours=2))
+    assert d.level == KillSwitchLevel.BLOCK_ENTRIES
+    assert not d.allow_entries
+
+
+def test_rejects_timestamp_older_than_last_update_same_day(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, T0 + timedelta(hours=3))
+    with pytest.raises(StaleObservationError):
+        ks.update(9_000, T0 + timedelta(hours=2))
+    # rejected observation left no trace
+    assert ks.state.last_equity == 10_000
+    assert ks.level == KillSwitchLevel.NORMAL
+
+
+def test_stale_timestamp_rejected_after_restart(tmp_path, limits):
+    state = tmp_path / "ks_state.json"
+    ks = KillSwitch(limits, state_path=state)
+    ks.update(10_000, T0)
+    ks.update(9_400, T0 + timedelta(hours=1))
+    restarted = KillSwitch(limits, state_path=state)
+    with pytest.raises(StaleObservationError):
+        restarted.update(9_400, T0 - timedelta(hours=1))
+    assert restarted.level == KillSwitchLevel.FLATTEN
+
+
+def test_midnight_gap_loss_counts_against_new_day(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, datetime(2026, 10, 15, 23, 50, tzinfo=timezone.utc))
+    d = ks.update(9_400, datetime(2026, 10, 16, 0, 10, tzinfo=timezone.utc))
+    assert d.level == KillSwitchLevel.FLATTEN
+    assert d.daily_return == pytest.approx(-0.06)
+    assert ks.state.day == "2026-10-16"
+    assert ks.state.day_start_equity == 10_000
+
+
+def test_long_outage_loss_is_not_hidden(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, T0)
+    d = ks.update(9_780, T0 + timedelta(days=3, hours=4))   # -2.2 % over the outage
+    assert d.level == KillSwitchLevel.BLOCK_ENTRIES
+
+
+def test_explicit_midnight_snapshot_is_the_reference(limits):
+    ks = KillSwitch(limits)
+    ks.update(10_000, datetime(2026, 10, 15, 22, 0, tzinfo=timezone.utc))
+    d = ks.update(9_400, datetime(2026, 10, 16, 0, 10, tzinfo=timezone.utc),
+                  day_start_equity=9_800)
+    assert ks.state.day_start_equity == 9_800
+    assert d.daily_return == pytest.approx(9_400 / 9_800 - 1)
+    assert d.level == KillSwitchLevel.BLOCK_ENTRIES
+    # snapshot ignored within the same day
+    ks.update(9_400, datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc), day_start_equity=1.0)
+    assert ks.state.day_start_equity == 9_800
+    with pytest.raises(ValueError):
+        ks.update(9_400, datetime(2026, 10, 17, 0, 1, tzinfo=timezone.utc),
+                  day_start_equity=float("nan"))
+
+
+def test_restart_across_midnight_uses_persisted_last_equity(tmp_path, limits):
+    state = tmp_path / "ks_state.json"
+    ks = KillSwitch(limits, state_path=state)
+    ks.update(10_200, datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc))
+    ks.update(10_000, datetime(2026, 10, 15, 23, 40, tzinfo=timezone.utc))
+    del ks                                               # bot goes down before midnight
+    restarted = KillSwitch(limits, state_path=state)
+    d = restarted.update(9_450, datetime(2026, 10, 16, 2, 30, tzinfo=timezone.utc))
+    assert d.level == KillSwitchLevel.FLATTEN
+    assert d.daily_return == pytest.approx(-0.055)
+    again = KillSwitch(limits, state_path=state)
+    assert again.level == KillSwitchLevel.FLATTEN
+    assert again.state.day == "2026-10-16"
+    assert again.state.last_ts == "2026-10-16T02:30:00+00:00"
 
 
 def test_corrupt_state_refuses(tmp_path, limits):
