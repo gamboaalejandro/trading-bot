@@ -209,3 +209,6 @@ __marimo__/
 logs/*
 !logs/.gitkeep
 state/
+
+# Research trials log: advisory lock files
+data/trials/.*.flock
