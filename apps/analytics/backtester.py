@@ -1,94 +1,89 @@
 """
-Statistical Backtester - Core Engine
-Fetches historical data and runs vectorized strategy logic for rapid optimization.
+Statistical Backtester - Core Engine (DEPRECATED)
+
+DEPRECATED: this legacy backtester ignores trading costs, uses the
+in-progress candle and must not be used to make decisions. Use
+``apps.research`` (see docs/research/PLAN.md) instead.
+
+It never generates synthetic data: any download problem raises
+BacktestDataError.
 """
+import warnings
+
 import pandas as pd
 import numpy as np
 import requests
 import logging
-from typing import Dict, List, Optional
-import time
+from typing import Dict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Backtester")
 
+DEPRECATION_MESSAGE = (
+    "apps.analytics.backtester is DEPRECATED (no costs, no data validation); "
+    "use apps.research instead"
+)
+
+
+class BacktestDataError(RuntimeError):
+    """Historical data could not be obtained. There is no mock fallback."""
+
+
 class Backtester:
     """
-    Rapid backtesting engine for technical indicators.
+    DEPRECATED rapid backtesting engine for technical indicators.
     Connects to Binance Public API (no keys needed for history).
     """
 
-    # Try Binance US first (often works in US-based sandboxes)
-    # If this fails, we can fall back to mocking data for demonstration
     BASE_URL = "https://api.binance.us/api/v3/klines"
 
     def __init__(self, symbol: str, timeframe: str = '1h', limit: int = 1000):
+        warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
         self.symbol = symbol.replace('/', '').upper()
         self.timeframe = timeframe
         self.limit = limit
         self.df = pd.DataFrame()
 
-    def fetch_data(self):
-        """Fetch historical OHLCV data from Binance."""
+    def fetch_data(self) -> pd.DataFrame:
+        """
+        Fetch historical OHLCV data from Binance.
+
+        Raises:
+            BacktestDataError: on any network/HTTP error (including 451
+                geo-blocking), an empty answer or a malformed payload.
+        """
         params = {
             'symbol': self.symbol,
             'interval': self.timeframe,
             'limit': self.limit
         }
 
+        logger.info(f"Fetching data from {self.BASE_URL} for {self.symbol}...")
         try:
-            logger.info(f"Fetching data from {self.BASE_URL} for {self.symbol}...")
             response = requests.get(self.BASE_URL, params=params, timeout=10)
-
-            if response.status_code == 451:
-                 # If geo-blocked, try mock data for demonstration
-                logger.warning("Geo-blocked by Binance US (451). Using MOCK data for demonstration.")
-                return self._generate_mock_data()
-
             response.raise_for_status()
             data = response.json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            raise BacktestDataError(f"Could not download klines for {self.symbol}: {e}") from e
 
-            if not data:
-                logger.warning("No data received.")
-                return pd.DataFrame()
+        if not data:
+            raise BacktestDataError(f"No klines received for {self.symbol} {self.timeframe}")
 
+        try:
             # [open_time, open, high, low, close, volume, ...]
-            self.df = pd.DataFrame(data, columns=[
+            df = pd.DataFrame(data, columns=[
                 'timestamp', 'open', 'high', 'low', 'close', 'volume',
                 'close_time', 'quote_asset_volume', 'trades',
                 'taker_buy_base', 'taker_buy_quote', 'ignore'
             ])
-
-            # Convert types
             cols = ['open', 'high', 'low', 'close', 'volume']
-            self.df[cols] = self.df[cols].astype(float)
-            self.df['timestamp'] = pd.to_datetime(self.df['timestamp'], unit='ms')
+            df[cols] = df[cols].astype(float)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        except (ValueError, TypeError) as e:
+            raise BacktestDataError(f"Malformed klines payload for {self.symbol}: {e}") from e
 
-            logger.info(f"Loaded {len(self.df)} candles for {self.symbol}")
-            return self.df
-
-        except Exception as e:
-            logger.error(f"Error fetching data: {e}")
-            logger.info("Falling back to MOCK data for demonstration.")
-            return self._generate_mock_data()
-
-    def _generate_mock_data(self):
-        """Generate realistic-looking mock data for testing logic."""
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=self.limit, freq=self.timeframe)
-
-        # Random Walk
-        np.random.seed(42)
-        returns = np.random.normal(0.0005, 0.02, self.limit) # Mean 0.05%, Std 2%
-        price_path = 100 * np.cumprod(1 + returns)
-
-        self.df = pd.DataFrame({
-            'timestamp': dates,
-            'open': price_path,
-            'high': price_path * 1.01,
-            'low': price_path * 0.99,
-            'close': price_path * (1 + np.random.normal(0, 0.005, self.limit)),
-            'volume': np.random.randint(100, 10000, self.limit)
-        })
+        self.df = df
+        logger.info(f"Loaded {len(self.df)} candles for {self.symbol}")
         return self.df
 
     def run_momentum(self, rsi_period: int = 14, ma_fast: int = 10, ma_slow: int = 30) -> Dict:
