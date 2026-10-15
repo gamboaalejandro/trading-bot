@@ -20,6 +20,10 @@ BENCH: null benchmarks every candidate must beat (PLAN.md §2.11, §5.5, §5.6 i
      same number of entries per symbol (and the same sides) as the candidate,
      with the candidate's own exit rules and the engine's sizing
      (:class:`RandomEntryEventStrategy`, :func:`random_entry_event_test`).
+     Inside a walk-forward the candidate is the concatenation of the
+     configurations chosen per fold, each run on its own test windows, and
+     the random entries follow the same per-window schedule
+     (:func:`wf_event_oos`, :func:`random_entry_event_wf_test`).
 
    The candidate must sit above the 95th percentile of the random net Sharpe
    ratios. Seeds are ``seed0, seed0 + 1, ...`` and every draw uses its own
@@ -58,6 +62,10 @@ __all__ = [
     "random_entry_weights_test",
     "entry_schedule",
     "RandomEntryEventStrategy",
+    "selection_segments",
+    "WFEventOOS",
+    "wf_event_oos",
+    "random_entry_event_wf_test",
     "random_entry_event_test",
 ]
 
@@ -442,3 +450,155 @@ def random_entry_event_test(
     return RandomEntryResult(np.array(sharpes), _sharpe(candidate_result.returns), seeds,
                              extra={"candidate_entries": n_entries, "entries_requested": requested,
                                     "entries_realized": realized})
+
+
+# --------------------------------------------------------------------------- walk-forward event strategies
+_ONE_DAY = pd.Timedelta(days=1)
+_EOD = _ONE_DAY - pd.Timedelta(1, "ns")
+
+
+def _utc(x) -> pd.Timestamp:
+    t = pd.Timestamp(x)
+    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+
+
+def selection_segments(selections: pd.DataFrame) -> list[tuple[str, pd.Timestamp, pd.Timestamp]]:
+    """
+    ``[(config, start, end)]`` from the walk-forward ``selections`` (one row per
+    fold with ``selected``, ``test_start``, ``test_end``): consecutive folds
+    with the same chosen configuration and contiguous test windows are merged.
+    ``start`` is the first test day (00:00 UTC) and ``end`` the last instant of
+    the last test day.
+    """
+    if selections is None or len(selections) == 0:
+        raise BenchmarkError("no walk-forward selections")
+    out: list[tuple[str, pd.Timestamp, pd.Timestamp]] = []
+    for row in selections.sort_values("test_start").itertuples(index=False):
+        cfg, t0, t1 = str(row.selected), _utc(row.test_start), _utc(row.test_end) + _EOD
+        if out and out[-1][0] == cfg and out[-1][2] + pd.Timedelta(1, "ns") == t0:
+            out[-1] = (cfg, out[-1][1], t1)
+        else:
+            out.append((cfg, t0, t1))
+    return out
+
+
+def _segment_returns(result, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+    r = result.returns.astype(float)
+    return r[(r.index >= start) & (r.index <= end)]
+
+
+def _segment_round_trips(result, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    rt = _round_trips(result)
+    if not len(rt):
+        return rt
+    et = pd.to_datetime(rt["entry_time"], utc=True)
+    return rt[((et >= start) & (et <= end)).to_numpy()]
+
+
+@dataclass
+class WFEventOOS:
+    """
+    Out-of-sample output of an event family under a walk-forward.
+
+    - ``returns``: daily returns of the configuration chosen in each fold, run
+      on that fold's test window only, concatenated.
+    - ``round_trips``: the round trips of those runs entered inside their
+      window (the OOS trades of the chosen configurations only).
+    - ``segments``: ``[(config, start, end)]`` (see :func:`selection_segments`).
+    - ``results``: the engine result of every segment.
+    """
+
+    returns: pd.Series
+    round_trips: pd.DataFrame
+    segments: list
+    results: list = field(default_factory=list, repr=False)
+
+    @property
+    def sharpe(self) -> float:
+        return _sharpe(self.returns.dropna())
+
+    @property
+    def trade_returns(self) -> Optional[pd.Series]:
+        """Per-trade R multiples of the OOS trades (``None`` when there are none)."""
+        if not len(self.round_trips) or "r_multiple" not in self.round_trips:
+            return None
+        return self.round_trips["r_multiple"].astype(float).reset_index(drop=True)
+
+
+def wf_event_oos(
+    selections: pd.DataFrame,
+    make_candidate: Callable[[str], object],
+    run: Callable[[object, pd.Timestamp, pd.Timestamp], BTResult],
+) -> WFEventOOS:
+    """
+    Run each walk-forward choice on its own test window(s).
+
+    ``make_candidate(config)`` builds a fresh strategy of a configuration and
+    ``run(strategy, start, end)`` runs the engine on ``[start, end]`` (bars
+    before ``start`` may still be used as indicator history). Nothing outside
+    the test windows of the chosen configurations reaches the output, so the
+    result is free of the look-ahead of the final selection.
+    """
+    segs = selection_segments(selections)
+    rets, trips, results = [], [], []
+    for cfg, t0, t1 in segs:
+        res = run(make_candidate(cfg), t0, t1)
+        results.append(res)
+        rets.append(_segment_returns(res, t0, t1))
+        rt = _segment_round_trips(res, t0, t1)
+        trips.append(rt.assign(config=cfg) if len(rt) else rt)
+    r = pd.concat(rets).sort_index() if rets else pd.Series(dtype=float)
+    non_empty = [t for t in trips if len(t)]
+    rt_all = pd.concat(non_empty, ignore_index=True) if non_empty else (
+        trips[0].iloc[0:0] if trips else pd.DataFrame())
+    return WFEventOOS(r.rename("returns"), rt_all, segs, results)
+
+
+def random_entry_event_wf_test(
+    make_candidate: Callable[[str], object],
+    run: Callable[[object, pd.Timestamp, pd.Timestamp], BTResult],
+    panel: Mapping[str, pd.DataFrame],
+    selections: pd.DataFrame,
+    n_seeds: int = N_SEEDS,
+    seed0: int = 0,
+    candidate: Optional[WFEventOOS] = None,
+) -> RandomEntryResult:
+    """
+    Random-entry benchmark of an event family under a walk-forward
+    (PLAN §5.6 item 3 on the net OOS Sharpe).
+
+    The candidate is :func:`wf_event_oos` (pass it as ``candidate`` to reuse a
+    previous run). For every seed and every segment, entries are drawn with the
+    entry count and sides per symbol of the candidate's OOS trades in that
+    segment, inside the segment, around a fresh strategy of the configuration
+    chosen there; the random series is the concatenation of the segments, like
+    the candidate's. ``candidate_sharpe`` is the Sharpe of the concatenated OOS
+    candidate series.
+    """
+    if n_seeds < 1:
+        raise BenchmarkError("n_seeds must be >= 1")
+    cand = candidate if candidate is not None else wf_event_oos(selections, make_candidate, run)
+    segs = cand.segments
+    seg_rt = [_segment_round_trips(res, t0, t1) for res, (_, t0, t1) in zip(cand.results, segs)]
+    seeds = list(range(seed0, seed0 + n_seeds))
+    sharpes, requested, realized = [], [], []
+    for sd in seeds:
+        rng = np.random.default_rng(sd)
+        parts, req, real = [], 0, 0
+        for (cfg, t0, t1), rt in zip(segs, seg_rt):
+            sched = entry_schedule(rt, panel, rng, t0, t1)
+            strat = RandomEntryEventStrategy(make_candidate(cfg), sched)
+            res = run(strat, t0, t1)
+            parts.append(_segment_returns(res, t0, t1))
+            req += strat.entries_requested
+            real += int(res.meta.get("counters", {}).get("entries", 0))
+        r = pd.concat(parts).sort_index() if parts else pd.Series(dtype=float)
+        sharpes.append(_sharpe(r.dropna()))
+        requested.append(req)
+        realized.append(real)
+    n_entries = int(sum(rt.drop_duplicates(["symbol", "entry_time"]).shape[0] for rt in seg_rt if len(rt)))
+    return RandomEntryResult(np.array(sharpes), cand.sharpe, seeds,
+                             extra={"candidate_entries": n_entries, "entries_requested": requested,
+                                    "entries_realized": realized,
+                                    "segments": [(c, str(a), str(b)) for c, a, b in segs],
+                                    "scope": "walk-forward OOS (chosen configuration per test window)"})

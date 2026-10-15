@@ -323,3 +323,43 @@ def test_e8_selector_with_two_engines(runner):
     assert "Adopted" in md
     assert runner.trials.n_family("SELECTOR") == 3
     assert runner.load_verdicts()["SELECTOR"]["choice"] in ("M1", "M2", "M3")
+
+
+def test_event_family_benchmarks_use_wf_oos_windows(runner, monkeypatch):
+    """Checks 3 and 10 of BRK4H come from the per-fold choices on their test windows (no final-selection run)."""
+    from apps.research.strategies import benchmarks, breakout4h
+    _subset(monkeypatch, breakout4h, "BRK4H_CONFIGS", ["B1", "B2"])
+    runner.s.markets = ("futures",)
+    seen = {}
+    orig_oos, orig_rnd, orig_gate = benchmarks.wf_event_oos, benchmarks.random_entry_event_wf_test, runmod.gate_report
+
+    def spy_oos(selections, make, run):
+        def run_spy(strat, s0, s1):
+            seen.setdefault("windows", []).append((s0, s1))
+            return run(strat, s0, s1)
+        out = orig_oos(selections, make, run_spy)
+        seen["oos"], seen["selections"] = out, selections
+        return out
+
+    def spy_rnd(*a, **k):
+        seen["rnd"] = orig_rnd(*a, **k)
+        return seen["rnd"]
+
+    def spy_gate(gi, gb, *a, **k):
+        seen["gi"], seen["gb"] = gi, gb
+        return orig_gate(gi, gb, *a, **k)
+
+    monkeypatch.setattr(benchmarks, "wf_event_oos", spy_oos)
+    monkeypatch.setattr(benchmarks, "random_entry_event_wf_test", spy_rnd)
+    monkeypatch.setattr(runmod, "gate_report", spy_gate)
+    runmod.exp_e5(runner)
+    folds = runner.folds
+    assert seen["windows"] and all(s0 >= folds[0].test_start and s1 < folds[-1].test_end + pd.Timedelta(days=1)
+                                   for s0, s1 in seen["windows"])
+    assert seen["gb"].random_sharpes is seen["rnd"]
+    assert seen["rnd"].candidate_sharpe == seen["oos"].sharpe
+    tr = seen["gi"].trade_returns
+    if seen["oos"].trade_returns is None:
+        assert tr is None
+    else:
+        pd.testing.assert_series_equal(tr, seen["oos"].trade_returns)

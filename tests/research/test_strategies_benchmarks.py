@@ -23,11 +23,14 @@ from apps.research.strategies.benchmarks import (
     exposure_episodes,
     permute_episodes,
     random_entry_event_test,
+    random_entry_event_wf_test,
     random_entry_weights_test,
     random_weight_paths,
-    vol_matched_bh,
+    selection_segments,
     vol_matched_benchmarks,
+    vol_matched_bh,
     weights_returns,
+    wf_event_oos,
 )
 
 IDX = pd.date_range("2024-01-01", periods=200, freq="1D", tz="UTC")
@@ -242,6 +245,111 @@ def test_random_entry_event_test_is_reproducible():
     assert a.extra["candidate_entries"] == cand.meta["round_trips"].drop_duplicates(
         ["symbol", "entry_time"]).shape[0]
     assert all(r <= a.extra["candidate_entries"] for r in a.extra["entries_realized"])
+
+
+# --------------------------------------------------------------------------- walk-forward event OOS
+# 60 days of 4h bars; fold 0 tests days 20-39 (config "A"), fold 1 days 40-59 (config "B").
+WF_DAYS = pd.date_range("2024-01-01", periods=60, freq="1D", tz="UTC")
+WF_SEL = pd.DataFrame({
+    "fold": [0, 1], "selected": ["A", "B"],
+    "test_start": [WF_DAYS[20], WF_DAYS[40]], "test_end": [WF_DAYS[39], WF_DAYS[59]],
+})
+
+
+class WindowedCandidate(TimeExitCandidate):
+    """``TimeExitCandidate(every_in)`` inside ``window``, a different entry rhythm outside it."""
+
+    def __init__(self, window, every_in, every_out, hold=6):
+        super().__init__(hold=hold, every=every_in)
+        self.window, self.every_in, self.every_out = window, every_in, every_out
+
+    def on_bar(self, t, bars, ctx):
+        inside = self.window[0] <= t <= self.window[1]
+        self.every = self.every_in if inside else self.every_out
+        return super().on_bar(t, bars, ctx)
+
+
+def _window(i):
+    return WF_DAYS[[20, 40][i]], WF_DAYS[[39, 59][i]] + pd.Timedelta(hours=23)
+
+
+def _makers(every_out_a, every_out_b):
+    def make(cfg):
+        if cfg == "A":
+            return WindowedCandidate(_window(0), 30, every_out_a)
+        return WindowedCandidate(_window(1), 25, every_out_b, hold=4)
+    return make
+
+
+def _window_run(df):
+    def run(strat, s0, s1):
+        return run_event_bt(strat, {"SOLUSDT": df}, "spot", CostModel(), None, s0, s1,
+                            daily={"SOLUSDT": to_daily(df)}, fixed_slip_bps=2.0)
+    return run
+
+
+def test_selection_segments_merges_contiguous_same_config():
+    sel = pd.DataFrame({"selected": ["A", "A", "B"],
+                        "test_start": WF_DAYS[[0, 10, 20]], "test_end": WF_DAYS[[9, 19, 29]]})
+    segs = selection_segments(sel)
+    assert [s[0] for s in segs] == ["A", "B"]
+    assert segs[0][1] == WF_DAYS[0] and segs[0][2] == WF_DAYS[19] + pd.Timedelta(days=1) - pd.Timedelta(1, "ns")
+    with pytest.raises(BenchmarkError):
+        selection_segments(sel.iloc[0:0])
+
+
+def test_wf_event_oos_only_uses_chosen_test_windows():
+    df = bars_4h(6 * 60)
+    out = wf_event_oos(WF_SEL, _makers(30, 25), _window_run(df))
+    assert out.returns.index.min() >= WF_DAYS[20] and out.returns.index.max() <= WF_DAYS[59]
+    rt = out.round_trips
+    assert len(rt) > 0 and set(rt["config"]) == {"A", "B"}
+    for cfg, (t0, t1) in (("A", _window(0)), ("B", _window(1))):
+        et = pd.to_datetime(rt.loc[rt["config"] == cfg, "entry_time"], utc=True)
+        assert ((et >= t0) & (et <= t1)).all()
+    assert len(out.trade_returns) == len(rt)
+
+
+def test_candidate_sharpe_and_trades_ignore_performance_outside_chosen_windows():
+    """Look-ahead guard: A outside fold 0 and B outside fold 1 must not matter (checks 3 and 10)."""
+    df = bars_4h(6 * 60)
+    run = _window_run(df)
+    base, changed = _makers(30, 25), _makers(7, 3)
+    # Sanity: over the whole window (the old, in-sample computation) the variants differ.
+    full_a = run(base("A"), WF_DAYS[0], WF_DAYS[59])
+    full_a2 = run(changed("A"), WF_DAYS[0], WF_DAYS[59])
+    assert len(full_a.meta["round_trips"]) != len(full_a2.meta["round_trips"])
+
+    r1 = random_entry_event_wf_test(base, run, {"SOLUSDT": df}, WF_SEL, n_seeds=3, seed0=5)
+    r2 = random_entry_event_wf_test(changed, run, {"SOLUSDT": df}, WF_SEL, n_seeds=3, seed0=5)
+    assert np.isfinite(r1.candidate_sharpe)
+    assert r1.candidate_sharpe == r2.candidate_sharpe
+    np.testing.assert_array_equal(r1.sharpes, r2.sharpes)
+    assert r1.extra["candidate_entries"] == r2.extra["candidate_entries"] > 0
+    assert [s[0] for s in r1.extra["segments"]] == ["A", "B"]
+    o1, o2 = wf_event_oos(WF_SEL, base, run), wf_event_oos(WF_SEL, changed, run)
+    pd.testing.assert_series_equal(o1.trade_returns, o2.trade_returns)
+    pd.testing.assert_series_equal(o1.returns, o2.returns)
+    assert r1.candidate_sharpe == o1.sharpe
+
+
+def test_random_entry_wf_schedule_stays_in_segments():
+    df = bars_4h(6 * 60)
+    run = _window_run(df)
+    seen = []
+
+    def spy(strat, s0, s1):
+        if isinstance(strat, RandomEntryEventStrategy):
+            seen.append((s0, s1, {t for v in strat.schedule.values() for t in v}))
+        return run(strat, s0, s1)
+
+    cand = wf_event_oos(WF_SEL, _makers(30, 25), run)
+    res = random_entry_event_wf_test(_makers(30, 25), spy, {"SOLUSDT": df}, WF_SEL, n_seeds=2, candidate=cand)
+    assert len(seen) == 2 * 2
+    for s0, s1, ts in seen:
+        assert all(s0 <= t <= s1 for t in ts)
+    per_seed = [len(ts) for _, _, ts in seen]
+    assert per_seed[0] + per_seed[1] == res.extra["candidate_entries"]
 
 
 # --------------------------------------------------------------------------- real data

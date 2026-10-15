@@ -33,7 +33,6 @@ once), E10 final report.
 from __future__ import annotations
 
 import argparse
-import functools
 import json
 import math
 import os
@@ -290,21 +289,25 @@ class Runner:
 
         # Benchmarks: vol-matched B&H (BTC + basket) and random entries.
         from apps.research.strategies.benchmarks import (
-            random_entry_event_test,
+            random_entry_event_wf_test,
             random_entry_weights_test,
             vol_matched_benchmarks,
+            wf_event_oos,
         )
         bench_panel = data.get("bench_panel", panel)
         vm = vol_matched_benchmarks(oos, bench_panel)
         final = wf.final_selection
         if event:
-            run_oos = functools.partial(data["run_strategy"], start=self.wf_start, end=self.wf_end)
-            cand_res = run_oos(data["make"](final))
-            rnd = random_entry_event_test(lambda: data["make"](final), cand_res, run_oos, panel,
-                                          n_seeds=self.s.seeds, start=pd.Timestamp(self.wf_start, tz="UTC"),
-                                          end=pd.Timestamp(self.wf_end, tz="UTC"))
-            trades = cand_res.meta.get("round_trips")
-            trade_returns = trades["r_multiple"].astype(float) if trades is not None and len(trades) else None
+            # Checks 3 and 10 must use OOS data only: the configuration chosen in each fold, run on
+            # that fold's test window, and random entries with the same per-window schedule. The
+            # final selection over the whole window would be in-sample (look-ahead through selection).
+            def run_window(strat, s0, s1):
+                return data["run_strategy"](strat, start=s0, end=s1)
+
+            cand_oos = wf_event_oos(wf.selections, data["make"], run_window)
+            rnd = random_entry_event_wf_test(data["make"], run_window, panel, wf.selections,
+                                             n_seeds=self.s.seeds, candidate=cand_oos)
+            trade_returns = cand_oos.trade_returns
         else:
             fee = self.cost.fee_rate(market) + 5e-4
             w_day = w_oos.groupby(w_oos.index.floor("D")).last() if len(w_oos) else w_oos
