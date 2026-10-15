@@ -1,0 +1,133 @@
+# Research harness configuration (apps/research). See docs/research/PLAN.md.
+# Every threshold here is fixed a priori [OPINION] and must NOT be optimised.
+# No secrets belong in this file.
+
+paths:
+  # Overridden by the RESEARCH_DATA_ROOT environment variable.
+  data_root: /home/user/harness/data
+  # Relative paths are resolved against the repository root.
+  trials_log: data/trials/trials.jsonl
+  holdout_lock: data/trials/holdout.lock
+  reports_dir: reports/research
+
+# Provenance of the local CSVs (PLAN §5.2.7, harness data README).
+data_sources:
+  futures:
+    repo: https://github.com/kbsingh1399/Backtesting_Data
+    commit: 735eb87ffafb5c431162d7fec0d9bb3bf88d6d47
+  funding:
+    repo: https://github.com/kbsingh1399/Backtesting_Data
+    commit: 735eb87ffafb5c431162d7fec0d9bb3bf88d6d47
+  spot:
+    repo: https://github.com/finom/static-klines
+    commit: 4d33a56f2b3930376fc778522770c6e84855be7e
+
+# PLAN §2.0 / §5.1. Survivorship bias: every symbol is listed in 2026.
+universe:
+  spot: [BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT, AVAXUSDT, LINKUSDT, DOTUSDT]
+  futures: [BTCUSDT, ETHUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, LINKUSDT, DOTUSDT, TRXUSDT,
+            LTCUSDT, BCHUSDT, SOLUSDT, AVAXUSDT, NEARUSDT, OPUSDT, APTUSDT, ARBUSDT, SUIUSDT]
+  # BNBUSDT funding is anomalous (PLAN §5.2.2): excluded from every perp P&L.
+  funding_excluded: [BNBUSDT]
+  majors: [BTCUSDT, ETHUSDT]
+  min_history_days: 365
+  min_quote_volume_30d: 5000000
+
+# PLAN §5.4 (VIP0, taker in every leg for the base case).
+costs:
+  spot_fee: 0.0010
+  spot_fee_bnb: 0.00075
+  fut_taker: 0.0005
+  fut_maker: 0.0002
+  # 30-day median quote volume tiers; below the last tier the symbol is excluded.
+  slippage_tiers:
+    - {tier: A, min_quote_volume_30d: 500000000, bps: 2}
+    - {tier: B, min_quote_volume_30d: 50000000, bps: 5}
+    - {tier: C, min_quote_volume_30d: 5000000, bps: 15}
+  # Robustness runs: they are NOT new trials.
+  stress:
+    cost_mult: [1.0, 2.0]
+    extra_delay_bars: 1
+    funding_mult: [0.5, 1.0, 2.0]
+    stop_fill: [gap_aware, worst_bar]
+
+# PLAN §5.3.
+splits:
+  debug:
+    start: "2020-09-01"
+    end: "2021-12-31"
+  walk_forward:
+    start: "2022-01-01"
+    end: "2026-03-09"
+    fold_months: 3
+    n_folds: 17
+    anchored: true
+  holdout:
+    futures: {start: "2026-03-10", end: "2026-09-10"}
+    spot: {start: "2026-03-10", end: "2026-10-15"}
+  frozen_oos_spot:
+    start: "2017-08-17"
+    end: "2020-08-31"
+    warmup_days: 360
+
+# PLAN §2.1: N <= 40 for the whole project. DEBATE = the 8 exploratory trials
+# already consumed during the debate (tag below), preloaded in the trials log.
+budget:
+  total: 40
+  exploratory_family: DEBATE
+  exploratory_tag: debate-exploratorio
+  quotas:
+    DEBATE: 8
+    TREND: 5
+    SHORT: 2
+    REGIME: 3
+    FVETO: 3
+    BRK4H: 5
+    CARRY: 3
+    PULLBACK: 3
+    SHOCK: 3
+    SELECTOR: 3
+    RESERVE: 2
+
+# PLAN §2.0 portfolio construction (layer D, fixed).
+sizing:
+  sigma_target: 0.15
+  sigma_coin: 0.25
+  step: 0.25
+  band: 0.20
+  ewma_lambda: 0.97
+  rho_floor: 0.75
+  vol_window: 90
+  cap_alt: 0.20
+  cap_major: 0.35
+  cap_alts_total: 0.60
+  gross_long_max: 1.0
+  gross_short_max: 0.5
+
+# PLAN §7.4. User hard limit: 3x on ISOLATED margin; the plan stays well below it.
+leverage:
+  margin_type: ISOLATED
+  position_mode: one_way
+  max_alt: 1.0
+  max_major: 1.5
+  user_hard_cap: 3.0
+
+# PLAN §5.6. MaxDD OOS <= 20% in spot AND futures (user tolerance: 20% total).
+gate:
+  dsr_min: 0.95
+  pbo_max: 0.30
+  random_entry_pctl: 95
+  bootstrap_p: 0.05
+  cost_stress_min_ratio: 0.5
+  delay_stress_min_ratio: 0.5
+  max_dd_oos_spot: 0.20
+  max_dd_oos_futures: 0.20
+  t_stat_min: 3.0
+  holdout_dd_mult: 1.5
+  level_b_psr_min: 0.90
+  pbo_cscv_splits: 16
+
+bootstrap:
+  block_mean: 20
+  reps: 10000
+  seed: 0
