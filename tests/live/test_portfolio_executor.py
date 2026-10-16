@@ -556,3 +556,13 @@ def test_kill_switch_halt_closes_all_positions(limits):
     assert len(buys) == 1 and buys[0][1:3] == ("SOLUSDT", "BUY") and buys[0][5] is True
     assert fut.positions() == {}
     assert spot.positions().get("BTCUSDT", 0.0) == 0.0
+
+
+def test_parse_symbols_restricts_universe():
+    from apps.live.portfolio_executor import ExecutorError, parse_symbols
+
+    assert parse_symbols("btcusdt, ETH/USDT,BTCUSDT") == ("BTCUSDT", "ETHUSDT")
+    with pytest.raises(ExecutorError):
+        parse_symbols("PEPEUSDT")
+    with pytest.raises(ExecutorError):
+        parse_symbols(" , ")
