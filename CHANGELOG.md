@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0] - 2026-10-16
+
+Rediseño completo: investigación, backtesting riguroso y ejecución spot + futuros.
+
+### Added
+- `docs/research/`: 7 informes de investigación, PLAN.md (debate de 5 perspectivas) y resultados E0-E10 con `FINAL_REPORT.md`.
+- `apps/research/`: loader de datos reales, features causales, motores de backtest (cartera diaria y eventos) con comisiones, slippage, funding y liquidación, estrategias TREND/SHORT/REGIME/FVETO/BRK4H/PULLBACK/SHOCK/CARRY, benchmarks nulos, walk-forward, DSR/PBO, gate A/B/C, score de adaptabilidad, TrialsLog append-only y CLI `python -m apps.research.run`.
+- `apps/live/`: ejecutor diario de cartera (velas cerradas, IDs idempotentes, stop inmediato tras fill), reconciliación con el exchange, kill-switch con `config/risk_limits.yml`, `--symbols` para cuentas pequeñas.
+- `core/binance_futures_client.py` (margen aislado, one-way, stops vía `/fapi/v1/algoOrder`), `core/secrets.py`, `.env.example`, `scripts/check_connection.py`, `scripts/fetch_official_audit_data.py`.
+
+### Changed
+- `TRADING_MODE` (`dry_run` por defecto, `spot_demo`, `futures_testnet`, `live` con `LIVE_TRADING_CONFIRM`); el bot legado de 1m queda forzado a dry-run.
+- Stop spot movido con `cancelReplace` (STOP_ON_FAILURE); el backtester legado ya no genera datos simulados.
+
+### Resultado de la investigación
+- Ninguna estrategia pasa el gate (todas nivel C); el holdout no se abrió. Recomendación: operar solo para validar la ejecución (testnet y luego 100 USD en BTC/ETH spot).
+
 ## [Unreleased]
 
 ### Security
