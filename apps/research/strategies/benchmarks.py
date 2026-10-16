@@ -35,6 +35,8 @@ inputs are the candidate's own outputs and the local market data.
 from __future__ import annotations
 
 import math
+import multiprocessing as mp
+import os
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional
 
@@ -554,6 +556,34 @@ def wf_event_oos(
     return WFEventOOS(r.rename("returns"), rt_all, segs, results)
 
 
+#: Callable shared with forked workers of :func:`_map_seeds` (closures are not picklable).
+_FORK_TASK: Optional[Callable[[int], object]] = None
+
+
+def _fork_call(sd: int):
+    assert _FORK_TASK is not None
+    return _FORK_TASK(sd)
+
+
+def _map_seeds(fn: Callable[[int], object], seeds: list, n_jobs: Optional[int] = None) -> list:
+    """``[fn(s) for s in seeds]``, optionally in forked processes (order preserved)."""
+    global _FORK_TASK
+    if n_jobs is None:
+        try:
+            n_jobs = int(os.environ.get("RESEARCH_N_JOBS", "1"))
+        except ValueError:
+            n_jobs = 1
+    n_jobs = max(1, min(int(n_jobs), len(seeds)))
+    if n_jobs == 1 or "fork" not in mp.get_all_start_methods():
+        return [fn(s) for s in seeds]
+    _FORK_TASK = fn
+    try:
+        with mp.get_context("fork").Pool(n_jobs) as pool:
+            return pool.map(_fork_call, seeds, chunksize=1)
+    finally:
+        _FORK_TASK = None
+
+
 def random_entry_event_wf_test(
     make_candidate: Callable[[str], object],
     run: Callable[[object, pd.Timestamp, pd.Timestamp], BTResult],
@@ -562,6 +592,7 @@ def random_entry_event_wf_test(
     n_seeds: int = N_SEEDS,
     seed0: int = 0,
     candidate: Optional[WFEventOOS] = None,
+    n_jobs: Optional[int] = None,
 ) -> RandomEntryResult:
     """
     Random-entry benchmark of an event family under a walk-forward
@@ -574,6 +605,10 @@ def random_entry_event_wf_test(
     chosen there; the random series is the concatenation of the segments, like
     the candidate's. ``candidate_sharpe`` is the Sharpe of the concatenated OOS
     candidate series.
+
+    ``n_jobs`` > 1 runs the seeds in forked worker processes (Linux ``fork``
+    start method; default: the ``RESEARCH_N_JOBS`` environment variable, else
+    1). Every seed owns its RNG, so the result is identical for any ``n_jobs``.
     """
     if n_seeds < 1:
         raise BenchmarkError("n_seeds must be >= 1")
@@ -581,8 +616,8 @@ def random_entry_event_wf_test(
     segs = cand.segments
     seg_rt = [_segment_round_trips(res, t0, t1) for res, (_, t0, t1) in zip(cand.results, segs)]
     seeds = list(range(seed0, seed0 + n_seeds))
-    sharpes, requested, realized = [], [], []
-    for sd in seeds:
+
+    def one_seed(sd: int) -> tuple[float, int, int]:
         rng = np.random.default_rng(sd)
         parts, req, real = [], 0, 0
         for (cfg, t0, t1), rt in zip(segs, seg_rt):
@@ -593,9 +628,12 @@ def random_entry_event_wf_test(
             req += strat.entries_requested
             real += int(res.meta.get("counters", {}).get("entries", 0))
         r = pd.concat(parts).sort_index() if parts else pd.Series(dtype=float)
-        sharpes.append(_sharpe(r.dropna()))
-        requested.append(req)
-        realized.append(real)
+        return _sharpe(r.dropna()), req, real
+
+    out = _map_seeds(one_seed, seeds, n_jobs)
+    sharpes = [o[0] for o in out]
+    requested = [o[1] for o in out]
+    realized = [o[2] for o in out]
     n_entries = int(sum(rt.drop_duplicates(["symbol", "entry_time"]).shape[0] for rt in seg_rt if len(rt)))
     return RandomEntryResult(np.array(sharpes), cand.sharpe, seeds,
                              extra={"candidate_entries": n_entries, "entries_requested": requested,
