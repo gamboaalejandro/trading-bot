@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.0] - 2026-10-16
+
+### Added
+- Despliegue con Docker (`deploy/`), guía `docs/DEPLOY.md`.
+- `scripts/audit_report.py` y `scripts/export_audit.sh` (rama `audit-logs`) para auditar el bot en vivo.
+
 ## [2.0.0] - 2026-10-16
 
 Rediseño completo: investigación, backtesting riguroso y ejecución spot + futuros.
