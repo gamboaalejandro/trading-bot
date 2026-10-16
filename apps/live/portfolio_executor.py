@@ -1132,14 +1132,28 @@ def build_executor(cfg: Optional[ExecutorConfig] = None, mode: Optional[str] = N
     return PortfolioExecutor(cfg, venues, mode=em.mode, limits=limits, state=state, **kwargs)
 
 
+def parse_symbols(value: str) -> tuple:
+    """Parse --symbols into a tuple, keeping only symbols of the researched spot universe."""
+    symbols = tuple(dict.fromkeys(s.strip().upper().replace("/", "") for s in value.split(",") if s.strip()))
+    unknown = [s for s in symbols if s not in SPOT_UNIVERSE]
+    if not symbols or unknown:
+        raise ExecutorError(f"--symbols must be a non-empty subset of {SPOT_UNIVERSE}; unknown: {unknown}")
+    return symbols
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Daily live portfolio executor (PLAN §4.3)")
     parser.add_argument("--once", action="store_true", help="run the daily step once and exit")
     parser.add_argument("--force", action="store_true", help="run even if today's run already completed")
     parser.add_argument("--engine", default="T3", help="preregistered configuration (T1-T5, S1/S2)")
+    parser.add_argument("--symbols", default=None,
+                        help="comma-separated subset of the spot universe, e.g. BTCUSDT,ETHUSDT "
+                             "(small accounts: each order must clear MIN_NOTIONAL)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    cfg = ExecutorConfig(engine=args.engine, shorts_on_futures=args.engine in SHORT_CONFIGS)
+    spot_symbols = parse_symbols(args.symbols) if args.symbols else SPOT_UNIVERSE
+    cfg = ExecutorConfig(engine=args.engine, spot_symbols=spot_symbols,
+                         shorts_on_futures=args.engine in SHORT_CONFIGS)
     executor = build_executor(cfg)
     logger.info("Portfolio executor mode=%s engine=%s", executor.mode, cfg.engine)
     if args.once:
