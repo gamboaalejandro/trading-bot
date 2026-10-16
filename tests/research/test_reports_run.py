@@ -424,3 +424,13 @@ def test_cli_resume_flag(monkeypatch, tmp_path):
     monkeypatch.setitem(runmod.EXPERIMENTS, "E10", lambda r: seen.setdefault("r", r) and [])
     runmod.main(["E10", "--trials-dir", str(tmp_path / "t"), "--reports-dir", str(tmp_path / "r"), "--resume"])
     assert seen["r"].s.resume is True
+
+
+def test_write_report_writes_per_config_returns(tmp_path):
+    r, sym, cells = _toy()
+    cfg = pd.DataFrame({"B1": r, "B3": r * 0.5})
+    write_report(ReportData("E5", "BRK4H spot", r, configs=cfg), tmp_path, reps=50)
+    back = pd.read_csv(tmp_path / "E5" / "brk4h_spot_configs_returns.csv", index_col=0, parse_dates=True)
+    assert list(back.columns) == ["B1", "B3"]
+    assert np.allclose(back["B3"].to_numpy(), (r * 0.5).to_numpy())
+    assert not (tmp_path / "E5" / "brk4h_spot_returns.csv").samefile(tmp_path / "E5" / "brk4h_spot_configs_returns.csv")
