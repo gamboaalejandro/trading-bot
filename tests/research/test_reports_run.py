@@ -394,3 +394,33 @@ def test_tail_table_reports_stops_slippage_and_stress_returns():
     assert row["stops_total"] == 7
     # days outside the series are skipped
     assert ("T3", "2021-05-19") not in tab.index
+
+
+def test_resume_reuses_trials_and_does_not_duplicate_metrics(runner, monkeypatch):
+    from apps.research.strategies import breakout4h
+    _subset(monkeypatch, breakout4h, "BRK4H_CONFIGS", ["B1", "B2"])
+    runner.s.markets = ("futures",)
+    runmod.exp_e5(runner)
+    n_records = len(runner.trials.records())
+    ids = [t["id"] for t in runner.trials.trials("BRK4H")]
+    runner.s.resume = True
+    md = runmod.exp_e5(runner)[0].read_text()
+    assert "## Gate (PLAN §5.6)" in md
+    assert [t["id"] for t in runner.trials.trials("BRK4H")] == ids
+    assert len(runner.trials.records()) == n_records           # nothing registered, no duplicate metrics
+    for tid in ids:
+        assert len(runner.trials.metrics_records(tid)) == 1
+
+
+def test_resume_refuses_unregistered_config(runner):
+    runner.s.resume = True
+    with pytest.raises(KeyError, match="--resume"):
+        runner.register(runmod._trend_specs(runner, ("T1",)))
+    assert runner.trials.n_family("TREND") == 0
+
+
+def test_cli_resume_flag(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setitem(runmod.EXPERIMENTS, "E10", lambda r: seen.setdefault("r", r) and [])
+    runmod.main(["E10", "--trials-dir", str(tmp_path / "t"), "--reports-dir", str(tmp_path / "r"), "--resume"])
+    assert seen["r"].s.resume is True

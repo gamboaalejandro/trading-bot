@@ -200,6 +200,18 @@ class TrialsLog:
                 return rec
         raise KeyError(f"Unknown trial id {trial_id!r}")
 
+    def find(self, family: str, params: dict) -> str | None:
+        """Id of the already registered trial ``(family, params)``, or ``None`` (read-only)."""
+        key = _canonical(_jsonable(params))
+        for rec in self.records():
+            if rec["kind"] == TRIAL and rec["family"] == family and _canonical(rec["params"]) == key:
+                return rec["id"]
+        return None
+
+    def metrics_records(self, trial_id: str) -> list[dict]:
+        """Every metrics payload recorded for ``trial_id``, oldest first."""
+        return [r["metrics"] for r in self.records() if r["kind"] == METRICS and r["trial_id"] == trial_id]
+
     # -------------------------------------------------------------- writes
     def register(self, family: str, params: dict, agent: str, tag: str = "") -> str:
         """Register a configuration BEFORE computing its metrics; return its id.

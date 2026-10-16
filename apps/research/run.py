@@ -105,6 +105,9 @@ class Settings:
     markets: tuple = ("spot", "futures")
     finalists: Sequence[str] = ()
     families: Sequence[str] = ()
+    #: Re-use trials already in the log (same family + params): nothing is registered and the
+    #: metrics of an (experiment, market) already recorded are not appended again.
+    resume: bool = False
 
 
 @dataclass
@@ -201,9 +204,28 @@ class Runner:
         """Register every configuration BEFORE computing (PLAN §6.1)."""
         ids = []
         for spec in specs:
-            spec.trial_id = self.trials.register(spec.family, spec.params, agent=self.s.agent, tag=tag)
+            if self.s.resume:
+                tid = self.trials.find(spec.family, spec.params)
+                if tid is None:
+                    raise KeyError(f"--resume: {spec.family} {spec.config_id} is not registered in the trials "
+                                   f"log; run without --resume to register it")
+                spec.trial_id = tid
+            else:
+                spec.trial_id = self.trials.register(spec.family, spec.params, agent=self.s.agent, tag=tag)
             ids.append(spec.trial_id)
         return ids
+
+    def record_metrics(self, trial_id: str, metrics: dict) -> None:
+        """Record OOS metrics; under ``--resume`` skip it if the same experiment/market is already logged."""
+        if self.s.resume:
+            for m in self.trials.metrics_records(trial_id):
+                if m.get("experiment") == metrics.get("experiment") and m.get("market") == metrics.get("market"):
+                    old, new = m.get("sharpe"), metrics.get("sharpe")
+                    if old is not None and new is not None and abs(float(old) - float(new)) > 1e-9:
+                        print(f"WARNING --resume: {trial_id} {metrics.get('market')} Sharpe recomputed "
+                              f"{new:.6f} != logged {old:.6f} (log kept unchanged)", file=sys.stderr)
+                    return
+        self.trials.record_metrics(trial_id, metrics)
 
     def _verdicts_path(self) -> Path:
         return self.reports_dir / "verdicts.json"
@@ -280,7 +302,7 @@ class Runner:
         # Record the OOS metrics of every configuration (after computing; trial already logged).
         for spec in specs:
             r = wf.config_oos[spec.config_id].dropna()
-            self.trials.record_metrics(spec.trial_id, {
+            self.record_metrics(spec.trial_id, {
                 "experiment": experiment, "market": market, "sharpe": _finite_or_none(sharpe(r)),
                 "max_dd": _finite_or_none(max_drawdown(r)), "n_days": int(len(r))})
 
@@ -799,7 +821,7 @@ def exp_e7(runner: Runner) -> list[Path]:
                 rep["p_improvement_gt_0"] = p
                 rep["accepted"] = bool(p < 0.05 and rep.get("incremental_per_turnover", 0) > 0)
                 rows[spec.config_id] = rep
-                runner.trials.record_metrics(spec.trial_id, {"experiment": "E7", "market": market,
+                runner.record_metrics(spec.trial_id, {"experiment": "E7", "market": market,
                                                              **{k: _finite_or_none(v) if isinstance(v, float) else v
                                                                 for k, v in rep.items()}})
                 by_year = ev.assign(year=pd.to_datetime(ev["decision"]).dt.year).groupby("year").apply(
@@ -898,7 +920,7 @@ def exp_e8(runner: Runner) -> list[Path]:
         p = bootstrap_pvalue_diff(cfg[m].to_numpy(), cfg["M1"].to_numpy(), reps=runner.reps)
         rows[m] = {"p_vs_M1": p, "adopt": bool(p < 0.05 and pbo <= 0.3), "sharpe": sharpe(cfg[m])}
     for spec in specs:
-        runner.trials.record_metrics(spec.trial_id, {"experiment": "E8", "sharpe": _finite_or_none(sharpe(cfg[spec.config_id]))})
+        runner.record_metrics(spec.trial_id, {"experiment": "E8", "sharpe": _finite_or_none(sharpe(cfg[spec.config_id]))})
     choice = next((m for m in ("M2", "M3") if rows[m]["adopt"]), "M1")
     rd = ReportData("E8", "SELECTOR vs parity", cfg[choice], cells=cells, configs=cfg, trial_ids=[s.trial_id for s in specs],
                     sections=[("Increment over M1", md_table(pd.DataFrame(rows).T))],
@@ -1010,6 +1032,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--seeds", type=int, default=100, help="random-entry seeds (PLAN: 100)")
     p.add_argument("--family", action="append", default=[], help="restrict E3/E7 to one family")
     p.add_argument("--finalists", nargs="*", default=[], help="E9 only: FAMILY:CONFIG:MARKET")
+    p.add_argument("--resume", action="store_true",
+                   help="re-use trials already registered (same family+params); register nothing new and do "
+                        "not duplicate metrics already logged for the same experiment/market")
     return p
 
 
@@ -1020,7 +1045,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     markets = ("spot", "futures") if args.market == "both" else (args.market,)
     settings = Settings(agent=args.agent, trials_dir=trials_dir, reports_dir=args.reports_dir,
                         data_root=args.data_root, reps=args.reps, seeds=args.seeds, markets=markets,
-                        finalists=args.finalists, families=tuple(args.family))
+                        finalists=args.finalists, families=tuple(args.family),
+                        resume=args.resume)
     runner = Runner(settings)
     paths = EXPERIMENTS[args.experiment](runner)
     for p in paths:
