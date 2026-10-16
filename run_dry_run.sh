@@ -29,6 +29,11 @@ if [ -d "${PROJECT_ROOT}/venv" ]; then
     source "${PROJECT_ROOT}/venv/bin/activate"
 fi
 
+# Force simulation: TRADING_MODE is authoritative (live also needs
+# LIVE_TRADING_CONFIRM=I_UNDERSTAND and 1m profiles need ALLOW_1M_LIVE=true)
+export TRADING_MODE=dry_run
+export DRY_RUN=true
+
 # Ejecutar Trading Engine desde el directorio raíz
 cd "${PROJECT_ROOT}"
 python3 orchestrator.py

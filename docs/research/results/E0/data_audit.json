@@ -1,0 +1,14 @@
+{
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E0",
+  "git_sha": "278307a223716d9af6a96964a4f7c13aab41ca8e",
+  "manifest_digest": "4642f4faa57fb13455c55c65d20840c8b5a82150c279df98d409179b0a9b3f24",
+  "market": "spot+futures",
+  "rows": 112,
+  "title": "Data audit",
+  "trial_ids": []
+}

@@ -23,5 +23,10 @@ echo
 # Activate virtual environment
 # source venv/Scripts/activate
 
+# Force simulation: TRADING_MODE is authoritative (live also needs
+# LIVE_TRADING_CONFIRM=I_UNDERSTAND and 1m profiles need ALLOW_1M_LIVE=true)
+export TRADING_MODE=dry_run
+export DRY_RUN=true
+
 # Run orchestrator
 python3 orchestrator.py

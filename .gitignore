@@ -134,8 +134,10 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments (secrets are never versioned; .env.example holds names only)
 .env
+.env*
+!.env.example
 .envrc
 .venv
 env/
@@ -209,3 +211,12 @@ __marimo__/
 logs/*
 !logs/.gitkeep
 state/
+
+# Research trials log: advisory lock files
+data/trials/.*.flock
+
+# Official audit downloads (scripts/fetch_official_audit_data.py)
+data/audit/
+
+# Live executor runtime state and journal (apps/live/portfolio_executor.py)
+data/live/

@@ -1,0 +1,13 @@
+{
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E1",
+  "git_sha": "6dac91d09d8fdf224327bfc08bb3a594b05fb153",
+  "manifest_digest": "6acf58fc9eb926f264e689addc797d403ad8ee3b774206fdd24d233ec85f11a6",
+  "market": "futures",
+  "title": "Benchmarks futures",
+  "trial_ids": []
+}

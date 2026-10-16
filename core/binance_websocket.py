@@ -253,6 +253,33 @@ class BinanceWebSocket:
         return f"{symbol.lower()}@kline_{interval}"
     
     @staticmethod
+    def closed_kline(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Return the kline payload of a kline event only if the candle is closed.
+
+        Kline events are pushed on every update of the forming candle; only
+        the final one carries ``k.x == true``. Signals must never be computed
+        on the others (they repaint), so every consumer of kline streams must
+        go through this filter.
+
+        Args:
+            message: Raw event, or a combined-stream wrapper {'stream', 'data'}
+
+        Returns:
+            The ``k`` dict when ``x is True``, otherwise None (also for
+            non-kline events).
+        """
+        if not isinstance(message, dict):
+            return None
+        data = message.get('data', message) if 'stream' in message else message
+        if not isinstance(data, dict) or data.get('e') != 'kline':
+            return None
+        kline = data.get('k')
+        if not isinstance(kline, dict) or kline.get('x') is not True:
+            return None
+        return kline
+
+    @staticmethod
     def trade_stream(symbol: str) -> str:
         """
         Generate trade stream name.
@@ -291,8 +318,9 @@ async def test_websocket():
         
         # Print ticker updates
         if data.get('e') == 'kline':
-            kline = data['k']
-            print(f"Kline: {data['s']} | Close: {kline['c']} | Volume: {kline['v']}")
+            kline = BinanceWebSocket.closed_kline(data)
+            if kline is not None:  # ignore updates of the forming candle
+                print(f"Closed kline: {data['s']} | Close: {kline['c']} | Volume: {kline['v']}")
         elif data.get('e') == '24hrTicker':
             print(f"Ticker: {data['s']} | Price: {data['c']} | 24h Change: {data['P']}%")
         else:
