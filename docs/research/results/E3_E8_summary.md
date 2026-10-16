@@ -57,12 +57,13 @@ kill-switch (DD >= 20 %) in 2 of 5 spot configurations and 5 of 5 perp configura
 
 ### Pre-registered rule 2 — "beats T3 in DSR" (same global N = 21, same V[SR] from the log)
 
-`diagnostics/e5_rules_*.json`. V[SR] = variance of the per-day Sharpes of every logged trial
-(2.42e-4/day at N = 21, after E5/E6).
+`diagnostics/e5_rules_spot.json`, `diagnostics/e5_rules_futures.json`. V[SR] = variance of the per-day Sharpes of every logged trial
+(2.42e-4/day at N = 21, after E5/E6). The committed spot report shows DSR 0.241 because it was
+written when the log held fewer metric records (V[SR] 3.68e-4); the rule uses the final log for both sides.
 
 | market | BRK4H family Sharpe / DSR | T3 alone Sharpe / DSR | BRK4H beats T3? | dSharpe (SE) |
 |---|---|---|---|---|
-| spot | SPOT_FAM | SPOT_T3 | SPOT_BEATS | SPOT_DS |
+| spot | 0.368 / 0.336 | 0.411 / 0.372 | **no** | -0.042 (0.554) |
 | perp | 0.206 / 0.225 | 0.377 / 0.345 | **no** | -0.171 (0.626) |
 
 ### Pre-registered rule 3 — ablations (one-sided stationary bootstrap, block 20, 10 000 reps; Holm over 3 tests)
@@ -71,7 +72,9 @@ A filter adds value if p < 0.05 **or** dSharpe > 1 SE of the B1 Sharpe.
 
 | market | test | Sharpe a / b | dSharpe | 1 SE(B1) | p boot | p Holm | adds value? |
 |---|---|---|---|---|---|---|---|
-SPOT_ABL
+| spot | ADX (B1 - B3) | 0.252 / 0.674 | -0.422 | 0.483 | 0.946 | 0.946 | **no** (removing ADX was better) |
+| spot | funding (B1 - B4) | 0.252 / -0.323 | +0.575 | 0.483 | 0.030 | 0.091 | **yes** by the rule (p < 0.05 and dSharpe > 1 SE); not significant after Holm |
+| spot | volume (B5 - B1) | 0.357 / 0.252 | +0.105 | 0.483 | 0.413 | 0.827 | **no** |
 | perp | ADX (B1 - B3) | 0.142 / 0.338 | -0.196 | 0.482 | 0.855 | 1.000 | **no** |
 | perp | funding (B1 - B4) | 0.142 / 0.074 | +0.067 | 0.482 | 0.258 | 0.773 | **no** |
 | perp | volume (B5 - B1) | 0.042 / 0.142 | -0.100 | 0.482 | 0.749 | 1.000 | **no** |
@@ -87,7 +90,21 @@ SPOT_ABL
 
 ### E5 verdict
 
-SPOT_VERDICT
+- Gate level **C** in spot and perp (MaxDD <= 20 % passes in both; DSR, cost x2, vs B&H and
+  significance fail in both).
+- **BRK4H does not beat T3 in DSR** in either market (spot 0.336 vs 0.372; perp 0.225 vs 0.345).
+- Ablations: the ADX filter does not add value (B3, without it, is the best single configuration
+  in both markets, but that is an ex-post observation, not a selectable result). The funding
+  filter adds value in **spot** by the pre-registered rule (p 0.030; Holm 0.091, so not robust to
+  the multiple-test correction) and not in perp (p 0.258). The volume filter adds no value.
+  Note: the spot funding filter reads perp funding, which is itself **not verified**.
+- The BRK4H quota is exhausted; no new variant (e.g. "B1 without ADX + funding") may be tried
+  without a new pre-registered family and panel vote. Family closed at level C.
+
+Spot per-configuration CSV (`E5/brk4h_spot_configs_returns.csv`): regenerated with
+`python -m apps.research.run E5 --market spot --resume` into a scratch reports directory (the spot
+report predates the per-configuration CSV). Zero new trials: `trials.jsonl` SHA-256 unchanged
+(`1b83570a…`, 54 records), and the family OOS return CSV is byte-identical to the committed one.
 
 ## E6 — CARRY K1-K3 (paper only, **P&L not verified**)
 
