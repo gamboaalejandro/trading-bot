@@ -105,6 +105,9 @@ class Settings:
     markets: tuple = ("spot", "futures")
     finalists: Sequence[str] = ()
     families: Sequence[str] = ()
+    #: Re-use trials already in the log (same family + params): nothing is registered and the
+    #: metrics of an (experiment, market) already recorded are not appended again.
+    resume: bool = False
 
 
 @dataclass
@@ -201,9 +204,28 @@ class Runner:
         """Register every configuration BEFORE computing (PLAN §6.1)."""
         ids = []
         for spec in specs:
-            spec.trial_id = self.trials.register(spec.family, spec.params, agent=self.s.agent, tag=tag)
+            if self.s.resume:
+                tid = self.trials.find(spec.family, spec.params)
+                if tid is None:
+                    raise KeyError(f"--resume: {spec.family} {spec.config_id} is not registered in the trials "
+                                   f"log; run without --resume to register it")
+                spec.trial_id = tid
+            else:
+                spec.trial_id = self.trials.register(spec.family, spec.params, agent=self.s.agent, tag=tag)
             ids.append(spec.trial_id)
         return ids
+
+    def record_metrics(self, trial_id: str, metrics: dict) -> None:
+        """Record OOS metrics; under ``--resume`` skip it if the same experiment/market is already logged."""
+        if self.s.resume:
+            for m in self.trials.metrics_records(trial_id):
+                if m.get("experiment") == metrics.get("experiment") and m.get("market") == metrics.get("market"):
+                    old, new = m.get("sharpe"), metrics.get("sharpe")
+                    if old is not None and new is not None and abs(float(old) - float(new)) > 1e-9:
+                        print(f"WARNING --resume: {trial_id} {metrics.get('market')} Sharpe recomputed "
+                              f"{new:.6f} != logged {old:.6f} (log kept unchanged)", file=sys.stderr)
+                    return
+        self.trials.record_metrics(trial_id, metrics)
 
     def _verdicts_path(self) -> Path:
         return self.reports_dir / "verdicts.json"
@@ -270,15 +292,17 @@ class Runner:
         # Mandatory stress (§5.4) on every configuration, re-using the WF selections.
         keys = list(stress_keys) if stress_keys is not None else [
             k for k in STRESS_RUNS if market == "futures" or k not in FUNDING_STRESS]
-        stress = {}
+        stress, stress_cfg = {}, {}
         for k in keys:
             per_cfg = {c.name: c.returns(panel, self.anchor, full_end, **STRESS_RUNS[k]) for c in cands}
+            # Cached engine results of the same runs (tail-event diagnostics).
+            stress_cfg[k] = {c.name: c.result(self.anchor, full_end, **STRESS_RUNS[k]) for c in cands}
             stress[k] = apply_selection(wf.selections, per_cfg)
 
         # Record the OOS metrics of every configuration (after computing; trial already logged).
         for spec in specs:
             r = wf.config_oos[spec.config_id].dropna()
-            self.trials.record_metrics(spec.trial_id, {
+            self.record_metrics(spec.trial_id, {
                 "experiment": experiment, "market": market, "sharpe": _finite_or_none(sharpe(r)),
                 "max_dd": _finite_or_none(max_drawdown(r)), "n_days": int(len(r))})
 
@@ -317,8 +341,12 @@ class Runner:
 
         # Frozen spot 2017-2020 (daily families): same frozen configuration.
         frozen_r = frozen_bh = None
+        frozen_all: dict[str, pd.Series] = {}
         if frozen:
             frozen_r, frozen_bh = self.frozen_run(by_name[final], data)
+            # Every configuration on the same frozen window (informative; the gate uses the final one).
+            for c in cands:
+                frozen_all[c.name] = frozen_r if c.name == final else self.frozen_run(c, data)[0]
 
         # Regime cells, per-symbol contributions and A_k.
         btc = data.get("btc")
@@ -348,11 +376,19 @@ class Runner:
         exposure = {"gross_mean": float(w_oos.abs().sum(axis=1).mean()) if len(w_oos) else float("nan"),
                     "turnover_daily": float(w_oos.diff().abs().sum(axis=1).mean()) if len(w_oos) else float("nan"),
                     "n_trades_final_cfg": int(len(results[final].trades))}
-        tail = _tail_table({n: res for n, res in results.items()})
-        sections = [("Frozen spot 2017-2020 (frozen configuration " + final + ")", md_table(metrics_table(
+        tail = _tail_table({n: res for n, res in results.items()}, stress_cfg)
+        ks_tab = _kill_switch_table({n: res for n, res in results.items()}, stress_cfg)
+        sections = [("Simulated kill-switch (user limits; whole run from the training anchor)",
+                     md_table(ks_tab.reset_index(), index=False, pct_cols=["max_dd_run"])
+                     if len(ks_tab) else "_no kill-switch data_")]
+        sections += [("Frozen spot 2017-2020 (frozen configuration " + final + ")", md_table(metrics_table(
             {"candidate": frozen_r, "B&H BTC vol-matched": frozen_bh}, 500),
             pct_cols=["total_return", "cagr", "vol", "max_dd", "cvar95"])) if frozen_r is not None else
             ("Frozen spot 2017-2020", "_not applicable_")]
+        if frozen_all:
+            sections.append(("Frozen spot 2017-2020, every configuration (informative; gate uses the final one)",
+                             md_table(metrics_table({**frozen_all, "B&H BTC vol-matched (final)": frozen_bh}, 500),
+                                      pct_cols=["total_return", "cagr", "vol", "max_dd", "cvar95"])))
         all_files = list(panel.values()) + list((data.get("funding") or {}).values())
         rd = ReportData(
             experiment=experiment, title=title or f"{family} {market}", returns=oos, market=market,
@@ -402,17 +438,90 @@ def _finite_or_none(x) -> Optional[float]:
     return float(x) if x is not None and math.isfinite(float(x)) else None
 
 
-def _tail_table(results: Mapping[str, BTResult]) -> pd.DataFrame:
+def _stop_fills(res: Any, t: pd.Timestamp) -> pd.DataFrame:
+    """Catastrophe-stop fills of ``res`` during the UTC day ``t`` (empty if not available)."""
+    tr = getattr(res, "trades", None)
+    if tr is None or not len(tr) or not {"time", "reason", "ref_price", "price", "qty"} <= set(tr.columns):
+        return pd.DataFrame(columns=["reason", "ref_price", "price", "qty"])
+    tt = pd.to_datetime(tr["time"], utc=True)
+    day = tr[(tt >= t) & (tt < t + ONE_DAY)]
+    return day[day["reason"].astype(str).str.startswith("stop")]
+
+
+def _tail_table(results: Mapping[str, Any],
+                stress: Optional[Mapping[str, Mapping[str, Any]]] = None) -> pd.DataFrame:
+    """
+    Tail events of PLAN §5.4 (2021-05-19, 2022-11-09, 2025-10-10), per configuration.
+
+    Columns: base-case return of the day, gross exposure held at the previous
+    close, catastrophe stops filled that day (and how many gapped through the
+    stop), mean stop slippage in bps (fill vs. trigger reference, adverse
+    sign), simulated liquidations, and the same day's return (and stop fills)
+    under each stress run. Liquidations are always 0 in the daily engine:
+    perp longs run at L <= 1 on isolated margin (liquidation price 0) and a
+    position that fails the liquidation-distance check is never opened
+    (``liq_rejected_total`` counts those rejections over the whole run).
+    """
     rows = []
     for name, res in results.items():
         r = res.returns
+        c = res.meta.get("counters", {})
         for d in TAIL_DAYS:
             t = pd.Timestamp(d, tz="UTC")
-            if t in r.index:
-                c = res.meta.get("counters", {})
-                rows.append({"config": name, "day": d, "return": float(r.loc[t]),
-                             "stops_total": c.get("stops"), "liq_rejected_total": c.get("liq_rejected")})
+            if t not in r.index:
+                continue
+            row = {"config": name, "day": d, "return": float(r.loc[t])}
+            w = getattr(res, "weights", None)
+            prev = w[w.index < t] if w is not None else pd.DataFrame()
+            row["gross_prev_close"] = float(prev.iloc[-1].abs().sum()) if len(prev) else 0.0
+            st = _stop_fills(res, t)
+            row["stops_filled"] = int(len(st))
+            row["stops_gapped"] = int((st["reason"] == "stop_gap").sum())
+            if len(st):
+                ref = st["ref_price"].astype(float)
+                side = -np.sign(st["qty"].astype(float))   # closing a long sells (qty < 0): side +1
+                row["stop_slip_bps"] = float((side * (ref - st["price"].astype(float)) / ref * 1e4).mean())
+            else:
+                row["stop_slip_bps"] = float("nan")
+            row["liquidations"] = 0
+            for k, per_cfg in (stress or {}).items():
+                sres = per_cfg.get(name)
+                sr = getattr(sres, "returns", sres)
+                if isinstance(sr, pd.Series) and t in sr.index:
+                    row[f"ret_{k}"] = float(sr.loc[t])
+                    if k == "worst_bar":
+                        row["stops_filled_worst_bar"] = int(len(_stop_fills(sres, t)))
+            row["stops_total"] = c.get("stops")
+            row["liq_rejected_total"] = c.get("liq_rejected")
+            rows.append(row)
     return pd.DataFrame(rows).set_index(["config", "day"]) if rows else pd.DataFrame()
+
+
+def _kill_switch_table(results: Mapping[str, Any],
+                       stress: Optional[Mapping[str, Mapping[str, Any]]] = None) -> pd.DataFrame:
+    """
+    Simulated kill-switch activity (user limits, ``config/risk_limits.yml``) per
+    configuration and run: first halt date (the halt is latched: the run stays
+    flat afterwards), days with blocked entries, days with leveraged/short
+    positions flattened and days at half risk. The whole run (from the training
+    anchor) is covered: a halt before the walk-forward window leaves the OOS flat.
+    """
+    runs = {"base": results, **(stress or {})}
+    rows = []
+    for run_name, per_cfg in runs.items():
+        for name, res in per_cfg.items():
+            ks = getattr(res, "meta", {}).get("kill_switch") if hasattr(res, "meta") else None
+            if ks is None or not isinstance(ks, pd.DataFrame):
+                continue
+            halted = ks.index[ks["level"] == "halted"]
+            rows.append({"config": name, "run": run_name,
+                         "halted_on": str(pd.Timestamp(halted[0]).date()) if len(halted) else "-",
+                         "days_halted": int(len(halted)),
+                         "days_block_entries": int((ks["level"] == "block_entries").sum()),
+                         "days_flatten_leveraged": int((ks["level"] == "flatten_leveraged").sum()),
+                         "days_half_risk": int((ks["risk_mult"] < 1.0).sum()),
+                         "max_dd_run": float(ks["drawdown"].max()) if len(ks) else float("nan")})
+    return pd.DataFrame(rows).set_index(["config", "run"]) if rows else pd.DataFrame()
 
 
 # --------------------------------------------------------------------------- experiments
@@ -466,7 +575,8 @@ def exp_e0(runner: Runner) -> list[Path]:
             continue
         frames.append(f)
         gaps = f.index.to_series().diff().dropna()
-        frows.append({"symbol": s, "status": "ok", "n": int(len(f)), "median": float(f.median()),
+        frows.append({"symbol": s, "status": "ok", "n": int(len(f)), "median_bps": float(f.median()) * 1e4,
+                      "mean_apr": float(f.mean()) * 3 * 365,
                       "share_zero": float((f == 0).mean()), "share_1e-4": float((f.round(8) == 1e-4).mean()),
                       "share_8h": float((gaps == pd.Timedelta(hours=8)).mean()),
                       "other_intervals": int((gaps != pd.Timedelta(hours=8)).sum()),
@@ -711,7 +821,7 @@ def exp_e7(runner: Runner) -> list[Path]:
                 rep["p_improvement_gt_0"] = p
                 rep["accepted"] = bool(p < 0.05 and rep.get("incremental_per_turnover", 0) > 0)
                 rows[spec.config_id] = rep
-                runner.trials.record_metrics(spec.trial_id, {"experiment": "E7", "market": market,
+                runner.record_metrics(spec.trial_id, {"experiment": "E7", "market": market,
                                                              **{k: _finite_or_none(v) if isinstance(v, float) else v
                                                                 for k, v in rep.items()}})
                 by_year = ev.assign(year=pd.to_datetime(ev["decision"]).dt.year).groupby("year").apply(
@@ -810,7 +920,7 @@ def exp_e8(runner: Runner) -> list[Path]:
         p = bootstrap_pvalue_diff(cfg[m].to_numpy(), cfg["M1"].to_numpy(), reps=runner.reps)
         rows[m] = {"p_vs_M1": p, "adopt": bool(p < 0.05 and pbo <= 0.3), "sharpe": sharpe(cfg[m])}
     for spec in specs:
-        runner.trials.record_metrics(spec.trial_id, {"experiment": "E8", "sharpe": _finite_or_none(sharpe(cfg[spec.config_id]))})
+        runner.record_metrics(spec.trial_id, {"experiment": "E8", "sharpe": _finite_or_none(sharpe(cfg[spec.config_id]))})
     choice = next((m for m in ("M2", "M3") if rows[m]["adopt"]), "M1")
     rd = ReportData("E8", "SELECTOR vs parity", cfg[choice], cells=cells, configs=cfg, trial_ids=[s.trial_id for s in specs],
                     sections=[("Increment over M1", md_table(pd.DataFrame(rows).T))],
@@ -922,6 +1032,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--seeds", type=int, default=100, help="random-entry seeds (PLAN: 100)")
     p.add_argument("--family", action="append", default=[], help="restrict E3/E7 to one family")
     p.add_argument("--finalists", nargs="*", default=[], help="E9 only: FAMILY:CONFIG:MARKET")
+    p.add_argument("--resume", action="store_true",
+                   help="re-use trials already registered (same family+params); register nothing new and do "
+                        "not duplicate metrics already logged for the same experiment/market")
     return p
 
 
@@ -932,7 +1045,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     markets = ("spot", "futures") if args.market == "both" else (args.market,)
     settings = Settings(agent=args.agent, trials_dir=trials_dir, reports_dir=args.reports_dir,
                         data_root=args.data_root, reps=args.reps, seeds=args.seeds, markets=markets,
-                        finalists=args.finalists, families=tuple(args.family))
+                        finalists=args.finalists, families=tuple(args.family),
+                        resume=args.resume)
     runner = Runner(settings)
     paths = EXPERIMENTS[args.experiment](runner)
     for p in paths:

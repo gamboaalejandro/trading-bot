@@ -1,0 +1,72 @@
+{
+  "A_k": -0.9049047464369073,
+  "configs": {
+    "T1": {
+      "band": 0.2,
+      "config": "T1",
+      "sigma_target": 0.15,
+      "signal": "DON"
+    },
+    "T2": {
+      "band": 0.2,
+      "config": "T2",
+      "sigma_target": 0.15,
+      "signal": "TSM"
+    },
+    "T3": {
+      "band": 0.2,
+      "config": "T3",
+      "sigma_target": 0.15,
+      "signal": "MIX"
+    },
+    "T4": {
+      "band": 0.2,
+      "config": "T4",
+      "sigma_target": 0.2,
+      "signal": "MIX"
+    },
+    "T5": {
+      "band": 0.1,
+      "config": "T5",
+      "sigma_target": 0.15,
+      "signal": "MIX"
+    }
+  },
+  "data_commit": {
+    "funding": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "futures": "735eb87ffafb5c431162d7fec0d9bb3bf88d6d47",
+    "spot": "4d33a56f2b3930376fc778522770c6e84855be7e"
+  },
+  "experiment": "E2",
+  "failed_A": [
+    "dsr",
+    "pbo",
+    "random_entries",
+    "vs_bh",
+    "no_catastrophe",
+    "holdout",
+    "significance"
+  ],
+  "failed_B": [
+    "pbo",
+    "random_entries",
+    "psr",
+    "adaptability"
+  ],
+  "family": "TREND",
+  "final_selection": "T1",
+  "git_sha": "c60c2a25b92fe5e7933af812547ea94bfd07883e",
+  "level": "C",
+  "manifest_digest": "d37784f18b2b5c51c51330b62b95b786f0a4cc20a2587681e1326e40a6da6e2c",
+  "market": "spot",
+  "max_dd": 0.1621136422444721,
+  "sharpe": 0.43552013400849576,
+  "title": "TREND T1-T5 spot",
+  "trial_ids": [
+    "TREND-01",
+    "TREND-02",
+    "TREND-03",
+    "TREND-04",
+    "TREND-05"
+  ]
+}

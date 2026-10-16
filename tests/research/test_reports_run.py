@@ -363,3 +363,74 @@ def test_event_family_benchmarks_use_wf_oos_windows(runner, monkeypatch):
         assert tr is None
     else:
         pd.testing.assert_series_equal(tr, seen["oos"].trade_returns)
+
+
+# --------------------------------------------------------------------------- tail events
+def test_tail_table_reports_stops_slippage_and_stress_returns():
+    from apps.research.engine.portfolio_bt import BTResult
+    from apps.research.run import _tail_table
+
+    idx = pd.date_range("2022-11-07", periods=4, freq="D", tz="UTC")
+    returns = pd.Series([0.0, 0.01, -0.03, 0.0], index=idx)
+    weights = pd.DataFrame({"BTCUSDT": [0.2, 0.3, 0.0, 0.0], "ETHUSDT": [0.1, 0.1, 0.1, 0.1]}, index=idx)
+    trades = pd.DataFrame([
+        # stop on BTC: sells 1 at 99 against a 100 reference (100 bps adverse)
+        (idx[2] + pd.Timedelta(hours=5), "BTCUSDT", -1.0, 100.0, 99.0, -99.0, 0.1, 1.0, "stop_gap"),
+        (idx[1], "ETHUSDT", 2.0, 10.0, 10.01, 20.02, 0.02, 0.02, "rebalance"),
+    ], columns=["time", "symbol", "qty", "ref_price", "price", "notional", "commission", "slippage", "reason"])
+    res = BTResult(equity=(1 + returns).cumprod(), returns=returns, weights=weights, trades=trades,
+                   costs=pd.DataFrame(), meta={"counters": {"stops": 7, "liq_rejected": 0}})
+    worst = BTResult(equity=(1 + returns).cumprod(), returns=returns * 2, weights=weights,
+                     trades=trades, costs=pd.DataFrame(), meta={})
+    tab = _tail_table({"T3": res}, {"worst_bar": {"T3": worst}})
+    row = tab.loc[("T3", "2022-11-09")]
+    assert row["return"] == pytest.approx(-0.03)
+    assert row["gross_prev_close"] == pytest.approx(0.4)
+    assert row["stops_filled"] == 1 and row["stops_gapped"] == 1
+    assert row["stop_slip_bps"] == pytest.approx(100.0)
+    assert row["liquidations"] == 0
+    assert row["ret_worst_bar"] == pytest.approx(-0.06)
+    assert row["stops_filled_worst_bar"] == 1
+    assert row["stops_total"] == 7
+    # days outside the series are skipped
+    assert ("T3", "2021-05-19") not in tab.index
+
+
+def test_resume_reuses_trials_and_does_not_duplicate_metrics(runner, monkeypatch):
+    from apps.research.strategies import breakout4h
+    _subset(monkeypatch, breakout4h, "BRK4H_CONFIGS", ["B1", "B2"])
+    runner.s.markets = ("futures",)
+    runmod.exp_e5(runner)
+    n_records = len(runner.trials.records())
+    ids = [t["id"] for t in runner.trials.trials("BRK4H")]
+    runner.s.resume = True
+    md = runmod.exp_e5(runner)[0].read_text()
+    assert "## Gate (PLAN §5.6)" in md
+    assert [t["id"] for t in runner.trials.trials("BRK4H")] == ids
+    assert len(runner.trials.records()) == n_records           # nothing registered, no duplicate metrics
+    for tid in ids:
+        assert len(runner.trials.metrics_records(tid)) == 1
+
+
+def test_resume_refuses_unregistered_config(runner):
+    runner.s.resume = True
+    with pytest.raises(KeyError, match="--resume"):
+        runner.register(runmod._trend_specs(runner, ("T1",)))
+    assert runner.trials.n_family("TREND") == 0
+
+
+def test_cli_resume_flag(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setitem(runmod.EXPERIMENTS, "E10", lambda r: seen.setdefault("r", r) and [])
+    runmod.main(["E10", "--trials-dir", str(tmp_path / "t"), "--reports-dir", str(tmp_path / "r"), "--resume"])
+    assert seen["r"].s.resume is True
+
+
+def test_write_report_writes_per_config_returns(tmp_path):
+    r, sym, cells = _toy()
+    cfg = pd.DataFrame({"B1": r, "B3": r * 0.5})
+    write_report(ReportData("E5", "BRK4H spot", r, configs=cfg), tmp_path, reps=50)
+    back = pd.read_csv(tmp_path / "E5" / "brk4h_spot_configs_returns.csv", index_col=0, parse_dates=True)
+    assert list(back.columns) == ["B1", "B3"]
+    assert np.allclose(back["B3"].to_numpy(), (r * 0.5).to_numpy())
+    assert not (tmp_path / "E5" / "brk4h_spot_returns.csv").samefile(tmp_path / "E5" / "brk4h_spot_configs_returns.csv")

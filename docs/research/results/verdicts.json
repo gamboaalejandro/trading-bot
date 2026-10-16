@@ -1,0 +1,422 @@
+{
+  "BRK4H:futures": {
+    "A_k": -0.20607391911261022,
+    "configs": {
+      "B1": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B1",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B2": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B2",
+        "fund_pct_max": 95.0,
+        "n": 55,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B3": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B3",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": false,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B4": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B4",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": false,
+        "use_volume": false
+      },
+      "B5": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B5",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": true
+      }
+    },
+    "experiment": "E5",
+    "failed_A": [
+      "dsr",
+      "pbo",
+      "random_entries",
+      "vs_bh",
+      "no_catastrophe",
+      "cost_stress",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "pbo",
+      "random_entries",
+      "cost_stress",
+      "psr",
+      "adaptability"
+    ],
+    "family": "BRK4H",
+    "final_selection": "B3",
+    "level": "C",
+    "market": "futures",
+    "max_dd": 0.16436899399159677,
+    "report": "E5/brk4h_futures.md",
+    "returns_csv": "E5/brk4h_futures_returns.csv",
+    "sharpe": 0.2059425615572046
+  },
+  "BRK4H:spot": {
+    "A_k": -0.8658529142124447,
+    "configs": {
+      "B1": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B1",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B2": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B2",
+        "fund_pct_max": 95.0,
+        "n": 55,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B3": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B3",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": false,
+        "use_funding": true,
+        "use_volume": false
+      },
+      "B4": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B4",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": false,
+        "use_volume": false
+      },
+      "B5": {
+        "adx_min": 20.0,
+        "adx_n": 14,
+        "apr_long_max": 0.5,
+        "apr_short_min": -0.3,
+        "atr_n": 14,
+        "btc_sma_n": 200,
+        "close_loc_min": 0.7,
+        "config": "B5",
+        "fund_pct_max": 95.0,
+        "n": 20,
+        "rvol_min": 1.5,
+        "rvol_n": 20,
+        "sma_n": 100,
+        "stop_atr": 2.5,
+        "trail_atr": 3.0,
+        "use_adx": true,
+        "use_funding": true,
+        "use_volume": true
+      }
+    },
+    "experiment": "E5",
+    "failed_A": [
+      "dsr",
+      "vs_bh",
+      "no_catastrophe",
+      "cost_stress",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "cost_stress",
+      "psr",
+      "adaptability"
+    ],
+    "family": "BRK4H",
+    "final_selection": "B3",
+    "level": "C",
+    "market": "spot",
+    "max_dd": 0.08870834314429343,
+    "report": "E5/brk4h_spot.md",
+    "returns_csv": "E5/brk4h_spot_returns.csv",
+    "sharpe": 0.3683216021024926
+  },
+  "CARRY:futures": {
+    "A_k": 1.6467320113497197,
+    "configs": {
+      "K1": {
+        "config": "K1",
+        "theta_in": 0.25,
+        "theta_out": 0.08
+      },
+      "K2": {
+        "config": "K2",
+        "theta_in": 0.2,
+        "theta_out": 0.05
+      },
+      "K3": {
+        "config": "K3",
+        "theta_in": 0.35,
+        "theta_out": 0.1
+      }
+    },
+    "experiment": "E6",
+    "failed_A": [
+      "dsr",
+      "pbo",
+      "random_entries",
+      "vs_bh",
+      "no_catastrophe",
+      "cost_stress",
+      "delay_stress",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "pbo",
+      "random_entries",
+      "psr"
+    ],
+    "family": "CARRY",
+    "final_selection": "K3",
+    "level": "C",
+    "market": "futures",
+    "max_dd": 0.022718206401376895,
+    "report": "E6/carry_k1_k3_paper.md",
+    "returns_csv": "E6/carry_k1_k3_paper_returns.csv",
+    "sharpe": 0.14485778165478622
+  },
+  "TREND:futures": {
+    "A_k": -0.38807732041571547,
+    "configs": {
+      "T1": {
+        "band": 0.2,
+        "config": "T1",
+        "sigma_target": 0.15,
+        "signal": "DON"
+      },
+      "T2": {
+        "band": 0.2,
+        "config": "T2",
+        "sigma_target": 0.15,
+        "signal": "TSM"
+      },
+      "T3": {
+        "band": 0.2,
+        "config": "T3",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      },
+      "T4": {
+        "band": 0.2,
+        "config": "T4",
+        "sigma_target": 0.2,
+        "signal": "MIX"
+      },
+      "T5": {
+        "band": 0.1,
+        "config": "T5",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      }
+    },
+    "experiment": "E2",
+    "failed_A": [
+      "dsr",
+      "vs_bh",
+      "no_catastrophe",
+      "cost_stress",
+      "frozen_spot",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "frozen_spot",
+      "psr",
+      "adaptability"
+    ],
+    "family": "TREND",
+    "final_selection": "T4",
+    "level": "C",
+    "market": "futures",
+    "max_dd": 0.19078284012323565,
+    "report": "E2/trend_t1_t5_futures.md",
+    "returns_csv": "E2/trend_t1_t5_futures_returns.csv",
+    "sharpe": 0.42358237624972134
+  },
+  "TREND:spot": {
+    "A_k": -0.9049047464369073,
+    "configs": {
+      "T1": {
+        "band": 0.2,
+        "config": "T1",
+        "sigma_target": 0.15,
+        "signal": "DON"
+      },
+      "T2": {
+        "band": 0.2,
+        "config": "T2",
+        "sigma_target": 0.15,
+        "signal": "TSM"
+      },
+      "T3": {
+        "band": 0.2,
+        "config": "T3",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      },
+      "T4": {
+        "band": 0.2,
+        "config": "T4",
+        "sigma_target": 0.2,
+        "signal": "MIX"
+      },
+      "T5": {
+        "band": 0.1,
+        "config": "T5",
+        "sigma_target": 0.15,
+        "signal": "MIX"
+      }
+    },
+    "experiment": "E2",
+    "failed_A": [
+      "dsr",
+      "pbo",
+      "random_entries",
+      "vs_bh",
+      "no_catastrophe",
+      "holdout",
+      "significance"
+    ],
+    "failed_B": [
+      "pbo",
+      "random_entries",
+      "psr",
+      "adaptability"
+    ],
+    "family": "TREND",
+    "final_selection": "T1",
+    "level": "C",
+    "market": "spot",
+    "max_dd": 0.1621136422444721,
+    "report": "E2/trend_t1_t5_spot.md",
+    "returns_csv": "E2/trend_t1_t5_spot_returns.csv",
+    "sharpe": 0.43552013400849576
+  }
+}

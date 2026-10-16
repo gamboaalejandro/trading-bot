@@ -371,3 +371,17 @@ def test_integration_vol_matched_on_real_closes():
     assert out["BTC"].std(ddof=1) == pytest.approx(common.std(ddof=1), rel=1e-9)
     res = random_entry_weights_test(w, closes, n_seeds=5)
     assert np.isfinite(res.sharpes).all()
+
+
+def test_random_entry_wf_parallel_matches_serial():
+    """Forked workers give exactly the serial result (each seed owns its RNG)."""
+    df = bars_4h(6 * 60)
+    run = _window_run(df)
+    cand = wf_event_oos(WF_SEL, _makers(30, 25), run)
+    r1 = random_entry_event_wf_test(_makers(30, 25), run, {"SOLUSDT": df}, WF_SEL, n_seeds=4, seed0=3,
+                                    candidate=cand, n_jobs=1)
+    r2 = random_entry_event_wf_test(_makers(30, 25), run, {"SOLUSDT": df}, WF_SEL, n_seeds=4, seed0=3,
+                                    candidate=cand, n_jobs=2)
+    np.testing.assert_array_equal(r1.sharpes, r2.sharpes)
+    assert r1.extra["entries_requested"] == r2.extra["entries_requested"]
+    assert r1.extra["entries_realized"] == r2.extra["entries_realized"]

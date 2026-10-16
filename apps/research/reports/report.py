@@ -288,6 +288,10 @@ def write_report(data: ReportData, out_dir: str | Path, reps: int = 1000, seed: 
     r = pd.Series(data.returns, dtype=float).dropna()
     if len(r):
         r.rename("returns").to_csv(d / f"{stem}_returns.csv", index_label="date")
+    cfg = data.configs
+    if isinstance(cfg, pd.DataFrame) and not cfg.empty:
+        # Per-configuration OOS returns (ablations and DSR comparisons without new trials).
+        cfg.astype(float).to_csv(d / f"{stem}_configs_returns.csv", index_label="date")
     if summary is not None:
         payload = {"experiment": data.experiment, "title": data.title, "market": data.market,
                    "trial_ids": list(data.trial_ids), "git_sha": git_sha(), "data_commit": data_commit(),
