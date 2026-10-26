@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.2.0] - 2026-10-26
+
+### Added
+- `apps/live/recorders.py` y servicio `recorder` en Docker: graba open interest, ratios long/short y taker, premium index, funding oficial y liquidaciones de los 18 perpetuos (~1 GB/año comprimido).
+
 ## [2.1.0] - 2026-10-16
 
 ### Added

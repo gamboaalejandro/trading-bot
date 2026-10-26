@@ -15,3 +15,15 @@ services:
       - ../data/live:/app/data/live
       - ../config/risk_limits.yml:/app/config/risk_limits.yml:ro
     restart: unless-stopped
+
+  recorder:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: trading_recorder
+    command: ["python", "-m", "apps.live.recorders"]
+    environment:
+      TZ: UTC
+    volumes:
+      - ../data/recorders:/app/data/recorders
+    restart: unless-stopped
