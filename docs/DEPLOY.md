@@ -76,7 +76,23 @@ Aborta si detecta algo con forma de clave (64 caracteres). Para hacer push neces
 
 Informe local en cualquier momento: `python scripts/audit_report.py --days 30`.
 
-## 6. Fases
+## 6. Grabación de datos de mercado (recorder)
+
+El servicio `recorder` del mismo `docker compose` graba datos públicos de futuros USDT-M (sin claves, no opera)
+en `data/recorders/<stream>/<día>.jsonl` (los días cerrados se comprimen en `.gz`):
+
+| stream | fuente | frecuencia | tamaño aprox. (18 monedas, sin comprimir) |
+|---|---|---|---|
+| `open_interest` | `/fapi/v1/openInterest` | 5 min | ~0.5 MB/día |
+| `global_lsr`, `top_lsr`, `taker_ratio` | `/futures/data/*` | 5 min | ~2.3 MB/día |
+| `premium_index` (mark, índice, funding previsto) | `/fapi/v1/premiumIndex` | 1 min | ~8.6 MB/día |
+| `funding` (oficial; historial completo en el primer arranque) | `/fapi/v1/fundingRate` | 8 h | ~12 MB una vez |
+| `liquidations` | WS `!forceOrder@arr` | continuo | 1-6 MB/día (hasta ~50 MB en días de pánico) |
+
+Total: ~13-18 MB/día sin comprimir (~5-6.5 GB/año) y **~0.6-1 GB/año comprimido**. Un disco de 20 GB sobra.
+Prueba rápida: `python -m apps.live.recorders --once`.
+
+## 7. Fases
 
 | fase | `TRADING_MODE` | duración | criterio para avanzar |
 |---|---|---|---|
