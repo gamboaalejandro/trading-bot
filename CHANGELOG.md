@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.2.1] - 2026-11-13
+
+### Security
+- Eliminadas del árbol las claves de Binance versionadas: `.env.futures.backup` (4 claves: producción y testnet) y las 2 del notebook `pruebita.ipynb` (ahora leen variables de entorno). Siguen en el historial de git: **hay que rotarlas en Binance** (las viejas quedan inservibles). El test de higiene de secretos ya no tiene excepciones.
+
 ## [2.2.0] - 2026-10-26
 
 ### Added

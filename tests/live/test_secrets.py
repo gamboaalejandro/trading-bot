@@ -9,9 +9,9 @@ from core.secrets import ApiCredentials, MissingSecretError, get_credentials, ha
 
 REPO = Path(__file__).resolve().parents[2]
 
-# Tracked files the user decided to keep for now: their keys are pending rotation
-# and removal (see the L01/L05 hand-off notes). Everything else must be clean.
-PENDING_ROTATION = {".env.futures.backup", "pruebita.ipynb"}
+# Hotfix 2.2.1 removed the last versioned keys (.env.futures.backup and the
+# notebook): no tracked file may contain one (constitution, principle VI).
+PENDING_ROTATION: set = set()
 
 # A Binance API key / secret is 64 alphanumeric chars. HMAC signatures in logged
 # URLs (``signature=<64 hex>``) are not secrets and are ignored.
