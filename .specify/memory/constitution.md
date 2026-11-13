@@ -1,15 +1,13 @@
 <!--
 Sync Impact Report
-- Versión: (plantilla) → 1.0.0 (ratificación inicial)
-- Principios añadidos: I. Evidencia antes que dinero; II. Datos reales, trazables y causales;
-  III. Riesgo en código determinista; IV. Auditabilidad total; V. Una sola fuente de verdad;
-  VI. Credenciales fuera del código; VII. Calidad verificable; VIII. Simplicidad y honestidad
-- Secciones añadidas: Restricciones del dominio; Flujo de desarrollo (SDD + gitflow); Gobernanza
-- Plantillas: .specify/templates/plan-template.md (la sección "Constitution Check" debe verificar
-  los principios I-VIII) ✅ sin cambios necesarios (lee la constitución en tiempo de ejecución);
-  spec-template.md ✅; tasks-template.md ✅ (los tests son obligatorios por el principio VII)
-- Pendientes: ratificación por el usuario de los principios I y VI (preguntas abiertas en
-  specs/README.md → "Preguntas abiertas")
+- Versión: 1.0.0 → 1.1.0 (MINOR: se amplía materialmente el principio I con una excepción acotada)
+- Principios modificados: I. Evidencia antes que dinero (nueva "excepción de validación de
+  ejecución", decisión del usuario 2026-11-13); VI. Credenciales fuera del código (estado: claves
+  versionadas eliminadas en el hotfix 2.2.1, rotación pendiente por el usuario)
+- Secciones añadidas: ninguna
+- Plantillas: plan-template.md ✅ (el "Constitution Check" lee la constitución en tiempo de
+  ejecución); spec-template.md ✅; tasks-template.md ✅
+- Pendientes: el usuario debe rotar en Binance las claves que siguen en el historial de git
 -->
 
 # Constitución de trading-bot
@@ -31,6 +29,11 @@ activos tecnológicos en MetaTrader 5) operado por una sola persona, con capital
   consumen presupuesto de ensayos y quedan registradas.
 - "Ninguna estrategia pasa" es un resultado válido. El gate **no se relaja a posteriori**.
 - Antes de operar con dinero real: mínimo 4 semanas en demo/paper sin incidencias de ejecución.
+- **Excepción de validación de ejecución** (decisión del usuario, 2026-11-13): tras esas 4 semanas
+  de demo se permite operar con capital real de **hasta 100 USD por mercado, sin apalancamiento**,
+  solo para validar la ejecución (fills, slippage, stops en el broker, kill-switch,
+  reconciliación). Se etiqueta como coste de ingeniería, se audita igual que cualquier operación
+  y **nunca cuenta como evidencia** a favor de una estrategia ni justifica ampliar el capital.
 
 ### II. Datos reales, trazables y causales (NO NEGOCIABLE)
 
@@ -79,7 +82,9 @@ activos tecnológicos en MetaTrader 5) operado por una sola persona, con capital
   repositorio, en notebooks, en logs ni en el chat.
 - Claves sin permiso de retiro, con whitelist de IP y separadas por entorno (demo, testnet,
   real).
-- Cualquier clave que haya llegado al historial de git se considera expuesta y se rota.
+- Cualquier clave que haya llegado al historial de git se considera expuesta y se rota (las de
+  `.env.futures.backup` y el notebook se quitaron del árbol en la versión 2.2.1; su rotación es
+  responsabilidad del usuario).
 
 ### VII. Calidad verificable
 
@@ -126,4 +131,4 @@ activos tecnológicos en MetaTrader 5) operado por una sola persona, con capital
 - Cada plan incluye un "Constitution Check" contra los principios I-VIII; `/speckit-analyze`
   marca como CRITICAL cualquier conflicto con un principio NO NEGOCIABLE.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 1.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
